@@ -39,21 +39,23 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
     specfile = f"/tmp/spec-{tag}.txt"
     logfile = f"/tmp/work-{tag}.log"
     dt.exec(sid, f"echo {b64(spec)} | base64 -d > {specfile}", timeout=30)
-    prompt = '"$(cat %s)"' % specfile
+    # CRITICAL: feed the prompt via STDIN, never inline as "$(cat file)". The spec text
+    # contains backticks, $( ), <, >, etc. — inline it gets RE-EVALUATED by the nested
+    # shells (base64->bash->bash -lc), corrupting the prompt so the worker writes nothing.
+    # Piping the file as stdin passes it verbatim.
     if model == OPUS:
-        cmd = f"{OPATH}; cd {wt} && claude -p {prompt} --model claude-opus-4-8 --permission-mode acceptEdits"
+        cmd = f"{OPATH}; cd {wt} && cat {specfile} | claude -p --model claude-opus-4-8 --permission-mode acceptEdits"
         match = "claude -p"
     elif model.startswith("dumont"):
-        # dumont-code agent on MiniMax M2.7 — prebuilt binary (cheap, fast worker). Login via
+        # dumont-code agent on MiniMax M2.7 — prebuilt binary. Login via
         # ~/.dumont/.credentials.json, key via $MINIMAX_API_KEY (~/.profile, loaded by bash -l).
-        # model form "dumont" -> minimax/m2-7; "dumont:provider/model" -> that dumont model key
         dmodel = model.split(":", 1)[1] if ":" in model else "minimax/m2-7"
         cmd = (f"export DUMONT_CONFIG=$HOME/.dumont/dumont.json; cd {wt} && "
-               f"~/bin/dumont -p {prompt} --model {dmodel} "
+               f"cat {specfile} | ~/bin/dumont -p --model {dmodel} "
                "--dangerously-skip-permissions --output-format text")
         match = "dumont"
     else:
-        cmd = f"{OPATH}; cd {wt} && opencode run -m {model} {prompt}"
+        cmd = f"{OPATH}; cd {wt} && cat {specfile} | opencode run -m {model}"
         match = "opencode run"
     dt.exec_detached(sid, cmd, logfile)
     return dt.exec_wait(sid, match, logfile, timeout=worker_timeout)
@@ -96,7 +98,7 @@ def run_llm_verifier(dt, sid, wt, task, tag):
     logfile = f"/tmp/verify-{tag}.log"
     dt.exec(sid, f"echo {b64(prompt)} | base64 -d > {specfile}", timeout=30)
     pre = f"{evidence}; " if evidence else ""
-    cmd = (f"{OPATH}; cd {wt} && {pre}claude -p \"$(cat {specfile})\" "
+    cmd = (f"{OPATH}; cd {wt} && {pre}cat {specfile} | claude -p "
            "--model claude-opus-4-8 --permission-mode acceptEdits")
     dt.exec_detached(sid, cmd, logfile)
     out = dt.exec_wait(sid, "claude -p", logfile, timeout=task.get("worker_timeout_s", 480))
@@ -163,7 +165,9 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # MiniMax for well-specified). It is NOT a blanket MiniMax default; MINIMAX here is
     # only the fallback when a task spec omits an explicit classification.
     model = task.get("worker_model", MINIMAX)
-    max_iters = task.get("max_iters", 20)
+    # high cap — the no-progress detector (below) is the real guard against stuck loops,
+    # so genuinely-progressing tasks can iterate a lot without a stall burning cost forever.
+    max_iters = task.get("max_iters", 60)
 
     # ensure the sandbox is running — a long task can outlast autoStopInterval, or a
     # degraded poll window can let it auto-stop mid-run. start() is idempotent (~1.2s).
@@ -188,6 +192,10 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     minimax_fails = 0
     passed = False
     i = 0
+    last_out = ""           # for no-progress detection
+    stuck = 0
+    no_progress_limit = task.get("no_progress_limit", 4)
+    last_fail_out = ""      # recorded into the failure result for the dashboard
     for i in range(1, max_iters + 1):
         if time.time() - t_task > task_budget:
             log(f"[{tid}] task budget {task_budget}s exceeded — aborting")
@@ -199,9 +207,9 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
         except TimeoutError as e:
             log(f"[{tid}] worker HUNG iter {i}: {e}")
             # a hung worker counts as a failed iteration; escalate and retry
-            if model == MINIMAX:
+            if model == MINIMAX or model.startswith("dumont"):
                 model = OPUS
-                log(f"[{tid}] hung MiniMax -> escalate to Opus")
+                log(f"[{tid}] hung cheap-lane -> escalate to Opus")
             spec = task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits."
             continue
         ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
@@ -210,16 +218,30 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
             passed = True
             break
         log(f"[{tid}] verify FAIL iter {i}")
-        if model == MINIMAX:
+        last_fail_out = out
+        # no-progress detection: identical verify output N times => genuinely stuck.
+        # Lets progressing tasks run to the (high) cap, kills true stalls in ~N rounds.
+        norm = "\n".join(l for l in out.splitlines() if "Duration" not in l and "Start at" not in l)
+        if norm == last_out:
+            stuck += 1
+        else:
+            stuck = 0; last_out = norm
+        if stuck >= no_progress_limit:
+            log(f"[{tid}] no progress for {no_progress_limit} iters — stuck, stopping")
+            cleanup_worktree(dt, sid, wt, branch)
+            return {"id": tid, "status": "STUCK_NO_PROGRESS", "iters": i,
+                    "error": out[-400:]}
+        if model == MINIMAX or model.startswith("dumont"):
             minimax_fails += 1
             if minimax_fails >= 2:
-                log(f"[{tid}] escalating worker MiniMax -> Opus")
+                log(f"[{tid}] escalating cheap-lane -> Opus")
                 model = OPUS
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
                 "Fix it. The verification command output was:\n" + out[-1500:])
     if not passed:
         cleanup_worktree(dt, sid, wt, branch)
-        return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters}
+        return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters,
+                "error": last_fail_out[-400:]}
 
     # scope check
     sok, changed, extra = scope_ok(dt, sid, wt, allowed)

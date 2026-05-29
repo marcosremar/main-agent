@@ -62,7 +62,7 @@ header{padding:14px 20px;background:#161b22;border-bottom:1px solid #30363d;posi
 h1{font-size:16px;margin:0 0 6px} .sum{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
 .pill{padding:2px 9px;border-radius:12px;font-weight:600}
 .MERGED{background:#1a7f37;color:#fff}.PENDING{background:#30363d;color:#adbac7}
-.FAILED_MAX_ITERS,.OUT_OF_SCOPE,.PR_OUT_OF_SCOPE,.TIMEOUT_BUDGET{background:#9e6a03;color:#fff}
+.FAILED_MAX_ITERS,.OUT_OF_SCOPE,.PR_OUT_OF_SCOPE,.TIMEOUT_BUDGET,.STUCK_NO_PROGRESS{background:#9e6a03;color:#fff}
 .ERROR{background:#cf222e;color:#fff}.RUNNING{background:#1f6feb;color:#fff}
 table{border-collapse:collapse;width:100%}
 td,th{padding:7px 12px;border-bottom:1px solid #21262d;text-align:left;vertical-align:top}
@@ -82,14 +82,16 @@ async function load(){
  const c={};rows.forEach(x=>c[x.status]=(c[x.status]||0)+1);
  document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join('')+`<span class=pill style=background:#30363d>TOTAL ${rows.length}</span>`;
  document.getElementById('t').textContent=' · '+new Date().toLocaleTimeString();
+ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
  document.getElementById('b').innerHTML=rows.map((x,i)=>`<tr>
-  <td><span class=id onclick="document.getElementById('s${i}').style.display=document.getElementById('s${i}').style.display=='block'?'none':'block'">${x.id}</span></td>
+  <td><span class=id onclick="document.getElementById('s${i}').style.display=document.getElementById('s${i}').style.display=='block'?'none':'block'">${x.id}</span>
+   <div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
   <td class=lane>${x.lane}</td>
   <td><span class="pill ${x.status}">${x.status}</span></td>
   <td>${x.pr?`<a href="${REPO}/pull/${x.pr}" target=_blank>#${x.pr}</a>`:''}</td>
   <td>${x.iters??''}</td>
-  <td><span class=files>${(x.files||[]).join('<br>')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${x.error.slice(0,200)}</div>`:''}
-   <div class=spec id=s${i}>${(x.spec||'').replace(/</g,'&lt;')}</div></td></tr>`).join('');
+  <td><span class=files>${(x.files||[]).join('<br>')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
+   <div class=spec id=s${i}><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`).join('');
 }
 load();setInterval(load,5000);
 </script>"""
