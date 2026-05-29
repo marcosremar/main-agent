@@ -48,6 +48,7 @@ def collect():
         rows.append({**d, "branch": branches.get(tid, "?"),
                      "status": st.get("status", "PENDING"),
                      "pr": st.get("pr"), "iters": st.get("iters"),
+                     "ran_model": st.get("model", ""),   # actual final model (may differ via escalation)
                      "error": st.get("error", "")})
     order = {"MERGED": 0, "RUNNING": 1, "PENDING": 2, "FAILED_MAX_ITERS": 3,
              "OUT_OF_SCOPE": 3, "PR_OUT_OF_SCOPE": 3, "ERROR": 4, "TIMEOUT_BUDGET": 4}
@@ -67,31 +68,40 @@ h1{font-size:16px;margin:0 0 6px} .sum{display:flex;gap:14px;flex-wrap:wrap;font
 table{border-collapse:collapse;width:100%}
 td,th{padding:7px 12px;border-bottom:1px solid #21262d;text-align:left;vertical-align:top}
 th{color:#7d8590;font-size:12px;text-transform:uppercase}
-tr:hover{background:#161b22}.lane{font-family:monospace;font-size:12px;color:#8b949e}
+tr:hover{background:#161b22}.tool{font-weight:600;color:#e6edf3}.lane{font-family:monospace;font-size:12px;color:#8b949e}
 .files{font-family:monospace;font-size:11px;color:#6e7681}
 .spec{display:none;white-space:pre-wrap;font-size:11px;color:#8b949e;max-width:900px}
 .id{cursor:pointer;font-weight:600}a{color:#58a6ff}
 </style>
 <header><h1>babylon-cinema · task status <span id=t style=color:#7d8590;font-weight:400></span></h1>
 <div class=sum id=sum></div></header>
-<table><thead><tr><th>task<th>lane<th>status<th>PR<th>iters<th>files / detail</tr></thead><tbody id=b></tbody></table>
+<table><thead><tr><th>task<th>tool · model<th>status<th>PR<th>iters<th>files / detail</tr></thead><tbody id=b></tbody></table>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
+function toolModel(lane, ran){
+ // ran = actual final model used (preferred); lane = configured starting worker
+ const v=(ran||lane||'').toString();
+ if(v.startsWith('claude')) return ['Claude Code','Opus 4.8'];
+ if(v.startsWith('dumont')) return ['Dumont', v.includes(':')? v.split(':')[1] : 'MiniMax M2.7'];
+ if(v.startsWith('minimax')) return ['OpenCode', v.replace('minimax/','')];
+ return [v||'?',''];
+}
 async function load(){
  const r=await fetch('/api/data');const rows=await r.json();
  const c={};rows.forEach(x=>c[x.status]=(c[x.status]||0)+1);
  document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join('')+`<span class=pill style=background:#30363d>TOTAL ${rows.length}</span>`;
  document.getElementById('t').textContent=' · '+new Date().toLocaleTimeString();
  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
- document.getElementById('b').innerHTML=rows.map((x,i)=>`<tr>
-  <td><span class=id onclick="document.getElementById('s${i}').style.display=document.getElementById('s${i}').style.display=='block'?'none':'block'">${x.id}</span>
-   <div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
-  <td class=lane>${x.lane}</td>
+ const tg=s=>{const e=document.getElementById(s);e.style.display=e.style.display=='block'?'none':'block';};
+ document.getElementById('b').innerHTML=rows.map((x,i)=>{const[tool,model]=toolModel(x.lane,x.ran_model);return `<tr>
+  <td><b>${x.id}</b><div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
+  <td><span class=tool>${tool}</span><div class=lane>${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span style=color:#d29922>(escalou)</span>':''}</div></td>
   <td><span class="pill ${x.status}">${x.status}</span></td>
   <td>${x.pr?`<a href="${REPO}/pull/${x.pr}" target=_blank>#${x.pr}</a>`:''}</td>
   <td>${x.iters??''}</td>
-  <td><span class=files>${(x.files||[]).join('<br>')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
-   <div class=spec id=s${i}><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`).join('');
+  <td><button onclick="tg('s${i}')" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:5px;padding:3px 9px;cursor:pointer">📄 ver prompt</button>
+   <span class=files style=margin-left:8px>${(x.files||[]).join(' · ')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
+   <div class=spec id=s${i}><b style=color:#58a6ff>FERRAMENTA:</b> ${tool} · ${esc(model)}<br><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`}).join('');
 }
 load();setInterval(load,5000);
 </script>"""

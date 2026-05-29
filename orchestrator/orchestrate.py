@@ -229,7 +229,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
         if stuck >= no_progress_limit:
             log(f"[{tid}] no progress for {no_progress_limit} iters — stuck, stopping")
             cleanup_worktree(dt, sid, wt, branch)
-            return {"id": tid, "status": "STUCK_NO_PROGRESS", "iters": i,
+            return {"id": tid, "status": "STUCK_NO_PROGRESS", "iters": i, "model": model,
                     "error": out[-400:]}
         if model == MINIMAX or model.startswith("dumont"):
             minimax_fails += 1
@@ -240,7 +240,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
                 "Fix it. The verification command output was:\n" + out[-1500:])
     if not passed:
         cleanup_worktree(dt, sid, wt, branch)
-        return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters,
+        return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters, "model": model,
                 "error": last_fail_out[-400:]}
 
     # scope check
@@ -277,7 +277,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # cleanup worktree
     dt.exec(sid, f"cd ~/babylon-cinema && git worktree remove --force {wt} 2>/dev/null; "
                  f"git branch -D {branch} 2>/dev/null; git worktree prune", timeout=60)
-    return {"id": tid, "status": "MERGED", "pr": num, "iters": i}
+    return {"id": tid, "status": "MERGED", "pr": num, "iters": i, "model": model}
 
 
 import threading
