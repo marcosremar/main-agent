@@ -38,6 +38,25 @@ def gh_token() -> str:
     return _run(["gh", "auth", "token"]).strip()
 
 
+def _file_b64(path) -> str:
+    import os
+    p = os.path.expanduser(path)
+    if not os.path.exists(p):
+        return ""
+    with open(p, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
+def codex_auth_b64() -> str:
+    """Codex ChatGPT auth (~/.codex/auth.json) — portable OAuth tokens."""
+    return _file_b64("~/.codex/auth.json")
+
+
+def codex_config_b64() -> str:
+    """Codex config (~/.codex/config.toml) — pins model gpt-5.3-codex-spark."""
+    return _file_b64("~/.codex/config.toml")
+
+
 def minimax_key(env_file="/Users/marcos/projects/ai-gateway/.env") -> str:
     """MiniMax API key for dumont (referenced as $MINIMAX_API_KEY in dumont.json)."""
     import os
@@ -70,6 +89,14 @@ def inject_into_sandbox(dt, sid: str, gh: str):
     code, out = dt.exec(sid, cmd, timeout=60)
     if "creds-injected" not in out:
         raise RuntimeError(f"cred injection failed: {out}")
+    # codex (gpt-5.3-codex-spark worker): ChatGPT auth + config (model pin), if present locally
+    ca, cc2 = codex_auth_b64(), codex_config_b64()
+    if ca:
+        cmd2 = f"mkdir -p ~/.codex && echo {ca} | base64 -d > ~/.codex/auth.json && chmod 600 ~/.codex/auth.json"
+        if cc2:
+            cmd2 += f" && echo {cc2} | base64 -d > ~/.codex/config.toml"
+        cmd2 += " && echo codex-cfg"
+        dt.exec(sid, cmd2, timeout=30)
     # dumont (MiniMax M2.7 worker): config ($MINIMAX_API_KEY ref, no secret in it) +
     # the Claude OAuth at ~/.dumont/.credentials.json (dumont's Linux login path) +
     # MINIMAX_API_KEY exported in ~/.profile so `bash -l` runs pick it up.

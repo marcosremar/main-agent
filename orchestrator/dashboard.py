@@ -85,6 +85,7 @@ function toolModel(lane, ran){
  const v=(ran||lane||'').toString();
  if(v.startsWith('claude')) return ['Claude Code','Opus 4.8'];
  if(v.startsWith('dumont')) return ['Dumont', v.includes(':')? v.split(':')[1] : 'MiniMax M2.7'];
+ if(v.startsWith('codex')) return ['Codex', v.includes(':')? v.split(':')[1] : 'gpt-5.3-codex-spark'];
  if(v.startsWith('minimax')) return ['OpenCode', v.replace('minimax/','')];
  return [v||'?',''];
 }

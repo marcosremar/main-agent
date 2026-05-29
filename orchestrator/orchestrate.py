@@ -54,6 +54,13 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
                f"cat {specfile} | ~/bin/dumont -p --model {dmodel} "
                "--dangerously-skip-permissions --output-format text")
         match = "dumont"
+    elif model.startswith("codex"):
+        # OpenAI Codex CLI (gpt-5.3-codex-spark). ChatGPT auth at ~/.codex/auth.json. Reads
+        # instructions from stdin. Externally sandboxed (Daytona) -> bypass approvals.
+        cxmodel = model.split(":", 1)[1] if ":" in model else "gpt-5.3-codex-spark"
+        cmd = (f"cat {specfile} | codex exec -m {cxmodel} "
+               f"--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C {wt}")
+        match = "codex exec"
     else:
         cmd = f"{OPATH}; cd {wt} && cat {specfile} | opencode run -m {model}"
         match = "opencode run"

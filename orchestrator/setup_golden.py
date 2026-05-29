@@ -35,9 +35,10 @@ def provision_one(dt, gh, cc, oc, tag="", stop_when_done=True):
     print(f"{tag}sid {sid}")
     logf = f"/tmp/setup-{sid[:8]}.log"
     install = ("npm i -g @anthropic-ai/claude-code >/tmp/c.log 2>&1; "
+               "npm i -g @openai/codex >/tmp/cx.log 2>&1; "
                "curl -fsSL https://opencode.ai/install | bash >/tmp/o.log 2>&1; echo CLIS_DONE")
     dt.exec_detached(sid, install, logf)
-    dt.exec_wait(sid, "npm i -g", logf, timeout=600)
+    dt.exec_wait(sid, "CLIS_DONE", logf, timeout=600)
     # dumont-code agent (MiniMax M2.7 worker): download the PREBUILT linux binary (release
     # asset) — self-contained, no clone/bun-install (which was flaky over sandbox network).
     dlog = f"/tmp/dumont-{sid[:8]}.log"
