@@ -67,6 +67,13 @@ python3 orchestrate.py config.json
   exist on the integration branch (GitHub check). Validated: rerun skips merged tasks.
 - Rebuild a vanished golden/pool anytime with `setup_golden.py` / `provision_pool.py`.
 
+## Status dashboard
+`dashboard.py [port]` (stdlib, no deps) cross-references config*.json × state/*.json and
+serves an auto-refreshing status page (MERGED/FAILED/PENDING per task, lane, PR#, iters,
+spec on click). Runs as a fixed macOS LaunchAgent:
+`~/Library/LaunchAgents/com.babyloncinema.dashboard.plist` → http://127.0.0.1:8787
+(KeepAlive, RunAtLoad). Control: `launchctl load|unload` that plist.
+
 ## Gaps / TODO
 - Custom baked snapshot via Daytona SDK (faster pool spin-up; REST create was 403).
 - Investigate occasional slow (15min) Opus iteration.
