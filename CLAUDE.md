@@ -342,6 +342,12 @@ user-escalation decision.
    (browser/macOS/iPhone) must be green. These are frozen before the loop starts.
 2. **Worker agent** — does the task. Routed by difficulty (Opus 4.8 hard / MiniMax M2.7
    bulk). Works in its own worktree/sandbox. Produces the change.
+> Implemented in the orchestrator as two modes (per task): **deterministic** (default) runs
+> the task's `verify_cmd` — a command, not an agent — so a pool of N workers spawns N
+> agents, not 2N; the test IS the verification. **llm** (`"verifier":"llm"`) adds an
+> independent adversarial Opus verifier (+ optional `evidence_cmd`) for fuzzy/visual
+> criteria a command can't judge; pass requires both the command gate and the LLM verdict.
+
 3. **Verifier agent** — a SEPARATE, independent agent that checks the worker's output
    against the frozen criteria. Adversarial mindset: tries to find why it FAILS, runs
    the verification commands, inspects the actual result (not the worker's claims). Use

@@ -19,9 +19,17 @@ python3 orchestrate.py config.json
 ```
 
 ## Model
-- Workers default to MiniMax M2.7; auto-escalate to Opus 4.8 after 2 failed verifies.
-- Verification is deterministic (runs the task's `verify_cmd`). For fuzzy tasks, add an
-  Opus verifier agent (TODO hook).
+- Workers run on Opus 4.8 (Claude Code). MiniMax disabled (flaky/hangs via opencode).
+
+## Verification (two modes, per task)
+- **deterministic** (default): runs the task's `verify_cmd` (e.g. vitest) IN the worker's
+  sandbox. A command, not an agent — no extra pool. The test IS the verification.
+- **llm** (`"verifier": "llm"`): after the deterministic gate, an INDEPENDENT adversarial
+  Opus agent (not the worker) inspects the actual change + optional `evidence_cmd`
+  artifacts (e.g. a screenshot) and tries to REFUTE the `criteria`. Must end with
+  `VERDICT: PASS|FAIL`. Pass requires BOTH gate and LLM. Use for fuzzy/visual criteria a
+  command can't judge. Task fields: `criteria` (frozen acceptance text), `evidence_cmd`
+  (optional artifact-producing command run before the verifier).
 
 ## Rules enforced
 - `main` is OFF-LIMITS. PRs target the configured integration branch only.

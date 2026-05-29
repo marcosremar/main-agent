@@ -63,6 +63,80 @@ def verify(dt, sid, wt, verify_cmd):
     return ok, out
 
 
+def run_llm_verifier(dt, sid, wt, task, tag):
+    """INDEPENDENT adversarial verifier (Opus) — for fuzzy criteria a command can't judge.
+
+    Runs a SEPARATE claude agent (not the worker) that inspects the actual change/evidence
+    and tries to REFUTE that the frozen criteria are met. Optional `evidence_cmd` produces
+    artifacts first (e.g. a screenshot path, a rendered output) for the verifier to read.
+    Returns (ok, output). The verifier must end with `VERDICT: PASS` or `VERDICT: FAIL: ...`.
+    """
+    evidence = task.get("evidence_cmd", "")
+    criteria = task.get("criteria", "The change fully and correctly satisfies the task spec.")
+    prompt = (
+        "You are an INDEPENDENT, ADVERSARIAL verifier. You did NOT write this code. Do not "
+        "trust any prior claim. Inspect the ACTUAL files changed in this worktree (use git "
+        "diff / read them) and any evidence artifacts. Try hard to REFUTE that the frozen "
+        "acceptance criteria below are met. Default to FAIL if uncertain.\n\n"
+        f"FROZEN ACCEPTANCE CRITERIA:\n{criteria}\n\n"
+        "Check each criterion against reality. Then output EXACTLY one final line: "
+        "'VERDICT: PASS' if every criterion genuinely holds, otherwise "
+        "'VERDICT: FAIL: <short reason>'. Output nothing after that line.")
+    specfile = f"/tmp/verify-{tag}.txt"
+    logfile = f"/tmp/verify-{tag}.log"
+    dt.exec(sid, f"echo {b64(prompt)} | base64 -d > {specfile}", timeout=30)
+    pre = f"{evidence}; " if evidence else ""
+    cmd = (f"{OPATH}; cd {wt} && {pre}claude -p \"$(cat {specfile})\" "
+           "--model claude-opus-4-8 --permission-mode acceptEdits")
+    dt.exec_detached(sid, cmd, logfile)
+    out = dt.exec_wait(sid, "claude -p", logfile, timeout=task.get("worker_timeout_s", 480))
+    ok = "VERDICT: PASS" in out
+    return ok, out
+
+
+def verify_vision(dt, sid, wt, task):
+    """Visual verification for fuzzy 3D/UI criteria. Runs `evidence_cmd` in the sandbox to
+    produce an image at `evidence_image`, pulls it out, and judges it with a cheap vision
+    model (gpt-4o-mini via OpenRouter). Returns (ok, output)."""
+    import base64 as _b64, tempfile, os
+    from vision import judge_image
+    if task.get("evidence_cmd"):
+        dt.exec(sid, f"{OPATH}; cd {wt} && {task['evidence_cmd']}",
+                timeout=task.get("worker_timeout_s", 480))
+    img = task["evidence_image"]
+    _, out = dt.exec(sid, f"cd {wt} && base64 -w0 {img} 2>/dev/null || base64 {img}", timeout=60)
+    data = out.strip().splitlines()[-1] if out.strip() else ""
+    if not data:
+        return False, f"no evidence image at {img}"
+    tmp = tempfile.mktemp(suffix=".png")
+    with open(tmp, "wb") as f:
+        f.write(_b64.b64decode(data))
+    try:
+        r = judge_image(tmp, task["criteria"], model=task.get("vision_model"))
+    finally:
+        os.remove(tmp)
+    return r["ok"], f"vision score={r.get('score')} | {r.get('verdict')}\n{r.get('raw','')}"
+
+
+def verify_task(dt, sid, wt, task, tag):
+    """Dispatch verification (layered): deterministic command gate FIRST (free/cheap), then
+    an optional fuzzy verifier — `vision` (cheap vision model on a screenshot/render) or
+    `llm` (independent adversarial Opus). Pass requires ALL configured stages."""
+    ok, out = True, ""
+    if task.get("verify_cmd"):
+        ok, out = verify(dt, sid, wt, task["verify_cmd"])
+        if not ok:
+            return ok, out
+    mode = task.get("verifier")
+    if mode == "vision":
+        vok, vout = verify_vision(dt, sid, wt, task)
+        return vok, (out + "\n--- VISION VERIFIER ---\n" + vout)
+    if mode == "llm":
+        lok, lout = run_llm_verifier(dt, sid, wt, task, tag)
+        return lok, (out + "\n--- LLM VERIFIER ---\n" + lout)
+    return ok, out
+
+
 def scope_ok(dt, sid, wt, allowed):
     _, out = dt.exec(sid, f"cd {wt} && git status --porcelain | grep -v node_modules", timeout=30)
     changed = [l[3:] for l in out.strip().splitlines() if l.strip()]
@@ -120,7 +194,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
                 log(f"[{tid}] hung MiniMax -> escalate to Opus")
             spec = task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits."
             continue
-        ok, out = verify(dt, sid, wt, task["verify_cmd"])
+        ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
         if ok:
             log(f"[{tid}] verify PASS on iter {i}")
             passed = True
@@ -263,7 +337,7 @@ def main():
     max_retry = cfg.get("task_retries", 3)       # retry a task on sandbox-death
     t_batch = time.time()
 
-    pool = cfg.get("pool_sids") or [cfg["golden_sid"]]
+    pool = cfg.get("pool_sids") or ([cfg["golden_sid"]] if cfg.get("golden_sid") else [])
     cloud = [t for t in cfg["tasks"] if t.get("location", "cloud") == "cloud"]
     local = [t for t in cfg["tasks"] if t.get("location") == "local"]
 
