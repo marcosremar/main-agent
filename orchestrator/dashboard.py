@@ -78,7 +78,8 @@ tr:hover{background:#161b22}.tool{font-weight:600;color:#e6edf3}.lane{font-famil
 <table><thead><tr><th>task<th>tool · model<th>status<th>PR<th>iters<th>files / detail</tr></thead><tbody id=b></tbody></table>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
-function tg(s){const e=document.getElementById(s);e.style.display=(e.style.display=='block')?'none':'block';}
+const opened=new Set();
+function tg(s){const e=document.getElementById(s);const on=e.style.display!='block';e.style.display=on?'block':'none';if(on)opened.add(s);else opened.delete(s);}
 function toolModel(lane, ran){
  // ran = actual final model used (preferred); lane = configured starting worker
  const v=(ran||lane||'').toString();
@@ -102,6 +103,7 @@ async function load(){
   <td><button onclick="tg('s${i}')" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:5px;padding:3px 9px;cursor:pointer">📄 ver prompt</button>
    <span class=files style=margin-left:8px>${(x.files||[]).join(' · ')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
    <div class=spec id=s${i}><b style=color:#58a6ff>FERRAMENTA:</b> ${tool} · ${esc(model)}<br><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`}).join('');
+ opened.forEach(s=>{const e=document.getElementById(s);if(e)e.style.display='block';});
 }
 load();setInterval(load,5000);
 </script>"""
