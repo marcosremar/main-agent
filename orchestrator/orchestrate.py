@@ -91,16 +91,19 @@ def run_llm_verifier(dt, sid, wt, task, tag):
     Returns (ok, output). The verifier must end with `VERDICT: PASS` or `VERDICT: FAIL: ...`.
     """
     evidence = task.get("evidence_cmd", "")
-    criteria = task.get("criteria", "The change fully and correctly satisfies the task spec.")
+    # validate against the ACTUAL task spec (a weak worker may write a test that passes but
+    # is trivial/wrong — Opus judges the change against the real intent, not just "tests pass")
+    criteria = task.get("criteria") or task.get("spec", "The change fully and correctly satisfies the task.")
     prompt = (
-        "You are an INDEPENDENT, ADVERSARIAL verifier. You did NOT write this code. Do not "
-        "trust any prior claim. Inspect the ACTUAL files changed in this worktree (use git "
-        "diff / read them) and any evidence artifacts. Try hard to REFUTE that the frozen "
-        "acceptance criteria below are met. Default to FAIL if uncertain.\n\n"
-        f"FROZEN ACCEPTANCE CRITERIA:\n{criteria}\n\n"
-        "Check each criterion against reality. Then output EXACTLY one final line: "
-        "'VERDICT: PASS' if every criterion genuinely holds, otherwise "
-        "'VERDICT: FAIL: <short reason>'. Output nothing after that line.")
+        "You are an INDEPENDENT, ADVERSARIAL validator (Claude Code / Opus). You did NOT "
+        "write this code — a weaker model may have. Do not trust that passing tests means "
+        "correct: inspect the ACTUAL files changed (git diff / read them) and check the "
+        "change genuinely and non-trivially fulfills the TASK below. Catch trivial/empty/"
+        "wrong implementations and tests that pass without really testing. Default to FAIL "
+        "if uncertain.\n\n"
+        f"TASK (what the change must achieve):\n{criteria}\n\n"
+        "Then output EXACTLY one final line: 'VERDICT: PASS' if the change is genuinely "
+        "correct and complete, otherwise 'VERDICT: FAIL: <short reason>'. Nothing after it.")
     specfile = f"/tmp/verify-{tag}.txt"
     logfile = f"/tmp/verify-{tag}.log"
     dt.exec(sid, f"echo {b64(prompt)} | base64 -d > {specfile}", timeout=30)
@@ -150,9 +153,13 @@ def verify_task(dt, sid, wt, task, tag):
     if mode == "vision":
         vok, vout = verify_vision(dt, sid, wt, task)
         return vok, (out + "\n--- VISION VERIFIER ---\n" + vout)
-    if mode == "llm":
+    # POLICY: validation is ALWAYS done by Opus (Claude Code), regardless of which (possibly
+    # weaker) worker did the task. The deterministic gate above is a cheap pre-filter; the
+    # final judgment that the change is genuinely correct is Opus's. Disable with
+    # opus_validate:false only for trivially-objective tasks where the command is sufficient.
+    if mode == "llm" or task.get("opus_validate", True):
         lok, lout = run_llm_verifier(dt, sid, wt, task, tag)
-        return lok, (out + "\n--- LLM VERIFIER ---\n" + lout)
+        return lok, (out + "\n--- OPUS VALIDATION ---\n" + lout)
     return ok, out
 
 
