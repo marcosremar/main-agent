@@ -236,6 +236,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
             if minimax_fails >= 2:
                 log(f"[{tid}] escalating cheap-lane -> Opus")
                 model = OPUS
+                stuck = 0; last_out = ""   # give Opus a fresh no-progress budget
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
                 "Fix it. The verification command output was:\n" + out[-1500:])
     if not passed:
