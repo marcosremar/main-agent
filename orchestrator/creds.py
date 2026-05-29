@@ -12,9 +12,23 @@ def _run(cmd: list[str]) -> str:
 
 
 def claude_credentials_b64() -> str:
-    """macOS Keychain item 'Claude Code-credentials' (the subscription OAuth)."""
+    """macOS Keychain 'Claude Code-credentials' OAuth, with the refreshToken STRIPPED.
+
+    Why strip it: `claude -p` rotates the OAuth token on startup. With N concurrent workers
+    sharing one credential, the first rotation invalidates the others -> 401 for ~N-1 of
+    them (refresh-token-rotation race). Removing refreshToken stops any process from
+    rotating, so all share the still-valid accessToken (re-inject fresh per batch from the
+    keychain, which the Mac keeps refreshed)."""
     raw = _run(["security", "find-generic-password", "-s",
                 "Claude Code-credentials", "-w"])
+    try:
+        d = json.loads(raw)
+        o = d.get("claudeAiOauth")
+        if isinstance(o, dict):
+            o.pop("refreshToken", None)
+        raw = json.dumps(d)
+    except Exception:
+        pass
     return base64.b64encode(raw.encode()).decode()
 
 
@@ -36,6 +50,16 @@ def dumont_config_b64(path="~/.dumont/dumont.json") -> str:
 
 def gh_token() -> str:
     return _run(["gh", "auth", "token"]).strip()
+
+
+def claude_oat_token(path="~/.claude-oat-token") -> str:
+    """Long-lived Claude Code OAuth token (`claude setup-token`). Stable for headless +
+    concurrency, unlike the short-lived keychain credentials that expire mid-session."""
+    import os
+    p = os.path.expanduser(path)
+    if os.path.exists(p):
+        return open(p).read().strip()
+    return ""
 
 
 def _file_b64(path) -> str:
@@ -89,6 +113,16 @@ def inject_into_sandbox(dt, sid: str, gh: str):
     code, out = dt.exec(sid, cmd, timeout=60)
     if "creds-injected" not in out:
         raise RuntimeError(f"cred injection failed: {out}")
+    # Claude Code auth = long-lived setup-token via CLAUDE_CODE_OAUTH_TOKEN (overrides the
+    # short-lived keychain creds, which expire mid-session and 401 even at 1 call). Exported
+    # in ~/.profile so `bash -l` worker/validator runs pick it up.
+    oat = claude_oat_token()
+    if oat:
+        # env token is authoritative -> drop the stale keychain credentials.json so claude
+        # can't fall back to the dead short-lived token.
+        dt.exec(sid, f"rm -f ~/.claude/.credentials.json; "
+                     f"grep -q CLAUDE_CODE_OAUTH_TOKEN ~/.profile 2>/dev/null || "
+                     f"echo 'export CLAUDE_CODE_OAUTH_TOKEN={oat}' >> ~/.profile; echo oat-set", timeout=30)
     # codex (gpt-5.3-codex-spark worker): ChatGPT auth + config (model pin), if present locally
     ca, cc2 = codex_auth_b64(), codex_config_b64()
     if ca:
