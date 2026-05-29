@@ -1,0 +1,7 @@
+orchestrator/state/
+orchestrator/__pycache__/
+__pycache__/
+*.pyc
+.openchrome/
+.claude/
+.DS_Store

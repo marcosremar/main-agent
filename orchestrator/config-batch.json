@@ -1,0 +1,215 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 15,
+  "global_deadline_s": 5400,
+  "pool_sids": [
+    "335bad44-ff62-4ad8-aaba-81d9a13422a7",
+    "735ebd09-c1c3-42b4-8fd0-a04a994b153b",
+    "04533069-1ac3-455c-ada9-64648f6c8ef5",
+    "555649d1-850a-46b7-b78f-5264f2b1a5cb",
+    "95036a20-ea5b-4ede-9231-28541690a24c",
+    "0748ac7e-49f3-4a20-a582-f088cd8fe0c1",
+    "15e4f01a-3087-4224-994d-9dbe0f7b559a",
+    "15460d6d-73af-425f-962e-6bc13ea2ff40",
+    "c6f325d8-c961-42cc-8e5e-59936d94f935",
+    "754d100d-5176-47a9-a26c-93bccf95dd61"
+  ],
+  "tasks": [
+    {
+      "id": "quest-without-npc",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 oral-task node references an undefined NPC",
+      "allowed_files": [
+        "scripts/qa/quest-without-npc.ts",
+        "test/qa/quest-without-npc.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/quest-without-npc.spec.ts",
+      "spec": "Create a deterministic detector: oral-task node references an undefined NPC. export function findQuestsWithoutNpc(project): { missing: Array<{node:string;npcId:string}> } \u2014 for every oralTaskGraphs[].nodes[] node that carries an npcId, flag it if that npcId is not defined by any dialogue.npc component. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: an oralTaskGraph node with npcId 'ghost' and no dialogue.npc defining 'ghost' -> one finding."
+    },
+    {
+      "id": "npc-without-task",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 defined NPC never referenced by any oral task",
+      "allowed_files": [
+        "scripts/qa/npc-without-task.ts",
+        "test/qa/npc-without-task.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/npc-without-task.spec.ts",
+      "spec": "Create a deterministic detector: defined NPC never referenced by any oral task. export function findNpcsWithoutTask(project): { unused: string[] } \u2014 dialogue.npc config.npcId values never referenced by any oralTaskGraphs node npcId. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: define dialogue.npc 'baker', no node references it -> unused ['baker']."
+    },
+    {
+      "id": "duplicate-scene-ids",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 two scenes share the same id",
+      "allowed_files": [
+        "scripts/qa/duplicate-scene-ids.ts",
+        "test/qa/duplicate-scene-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-scene-ids.spec.ts",
+      "spec": "Create a deterministic detector: two scenes share the same id. export function findDuplicateSceneIds(project): { duplicates: string[] } \u2014 scene ids appearing more than once. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: two scenes both id 'home' -> duplicates ['home']."
+    },
+    {
+      "id": "duplicate-npc-ids",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 two dialogue.npc components share a npcId",
+      "allowed_files": [
+        "scripts/qa/duplicate-npc-ids.ts",
+        "test/qa/duplicate-npc-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-npc-ids.spec.ts",
+      "spec": "Create a deterministic detector: two dialogue.npc components share a npcId. export function findDuplicateNpcIds(project): { duplicates: string[] } \u2014 config.npcId values appearing on more than one dialogue.npc component. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: two dialogue.npc with npcId 'clerk' -> duplicates ['clerk']."
+    },
+    {
+      "id": "empty-scenes",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 scene has no entities",
+      "allowed_files": [
+        "scripts/qa/empty-scenes.ts",
+        "test/qa/empty-scenes.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/empty-scenes.spec.ts",
+      "spec": "Create a deterministic detector: scene has no entities. export function findEmptyScenes(project): { empty: string[] } \u2014 scene ids whose entities array is missing or empty. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: a scene 'void' with entities [] -> empty ['void']."
+    },
+    {
+      "id": "npc-empty-fallback",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 dialogue.npc has no fallback lines",
+      "allowed_files": [
+        "scripts/qa/npc-empty-fallback.ts",
+        "test/qa/npc-empty-fallback.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/npc-empty-fallback.spec.ts",
+      "spec": "Create a deterministic detector: dialogue.npc has no fallback lines. export function findNpcsWithEmptyFallback(project): { offenders: string[] } \u2014 dialogue.npc config.npcId whose config.fallbackLines is missing or empty. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: dialogue.npc 'mute' with fallbackLines [] -> offenders ['mute']."
+    },
+    {
+      "id": "scene-missing-displayname",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 scene lacks a displayName",
+      "allowed_files": [
+        "scripts/qa/scene-missing-displayname.ts",
+        "test/qa/scene-missing-displayname.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/scene-missing-displayname.spec.ts",
+      "spec": "Create a deterministic detector: scene lacks a displayName. export function findScenesMissingDisplayName(project): { offenders: string[] } \u2014 scene ids with missing/empty displayName. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: scene 'x' without displayName -> offenders ['x']."
+    },
+    {
+      "id": "portal-missing-target",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 portal has no destination field",
+      "allowed_files": [
+        "scripts/qa/portal-missing-target.ts",
+        "test/qa/portal-missing-target.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/portal-missing-target.spec.ts",
+      "spec": "Create a deterministic detector: portal has no destination field. export function findPortalsMissingTarget(project): { offenders: Array<{fromScene:string;index:number}> } \u2014 portals whose destination scene id field is missing or empty. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: a scene 'home' with one portal lacking a destination -> one offender."
+    },
+    {
+      "id": "unused-prefabs",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 prefab defined but never instantiated",
+      "allowed_files": [
+        "scripts/qa/unused-prefabs.ts",
+        "test/qa/unused-prefabs.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/unused-prefabs.spec.ts",
+      "spec": "Create a deterministic detector: prefab defined but never instantiated. export function findUnusedPrefabs(project): { unused: string[] } \u2014 prefabs[] ids never referenced by any entity (discover how entities reference prefabs). Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: prefab 'crate' defined, no entity references it -> unused ['crate']."
+    },
+    {
+      "id": "component-missing-kind",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 component without a kind",
+      "allowed_files": [
+        "scripts/qa/component-missing-kind.ts",
+        "test/qa/component-missing-kind.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/component-missing-kind.spec.ts",
+      "spec": "Create a deterministic detector: component without a kind. export function findComponentsMissingKind(project): { offenders: Array<{scene:string;entityIndex:number}> } \u2014 components missing a kind field. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: an entity with a component lacking kind -> one offender."
+    },
+    {
+      "id": "invalid-cefr-level",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 CEFR level value out of A1..C2",
+      "allowed_files": [
+        "scripts/qa/invalid-cefr-level.ts",
+        "test/qa/invalid-cefr-level.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/invalid-cefr-level.spec.ts",
+      "spec": "Create a deterministic detector: CEFR level value out of A1..C2. export function findInvalidCefrLevels(project): { offenders: Array<{where:string;level:string}> } \u2014 any 'level' field whose value is not one of A1,A2,B1,B2,C1,C2 (case-insensitive). Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: a teacherActivity with level 'Z9' -> one offender."
+    },
+    {
+      "id": "missing-required-fields",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 project missing required top-level fields",
+      "allowed_files": [
+        "scripts/qa/missing-required-fields.ts",
+        "test/qa/missing-required-fields.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/missing-required-fields.spec.ts",
+      "spec": "Create a deterministic detector: project missing required top-level fields. export function findMissingRequiredFields(project): { missing: string[] } \u2014 of ['id','scenes'] (confirm real required keys from examples) those absent at the top level. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: an object {scenes:[]} with no id -> missing ['id']."
+    },
+    {
+      "id": "activity-without-scene",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 activity references a scene that does not exist",
+      "allowed_files": [
+        "scripts/qa/activity-without-scene.ts",
+        "test/qa/activity-without-scene.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-without-scene.spec.ts",
+      "spec": "Create a deterministic detector: activity references a scene that does not exist. export function findActivitiesWithoutScene(project): { offenders: Array<{activity:string;sceneId:string}> } \u2014 teacherActivities referencing a sceneId not present in scenes (discover the real field linking activity->scene). Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: an activity referencing sceneId 'nowhere' not in scenes -> one offender."
+    },
+    {
+      "id": "dangling-task-edges",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 oral-task node points to a missing next node",
+      "allowed_files": [
+        "scripts/qa/dangling-task-edges.ts",
+        "test/qa/dangling-task-edges.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/dangling-task-edges.spec.ts",
+      "spec": "Create a deterministic detector: oral-task node points to a missing next node. export function findDanglingTaskEdges(project): { offenders: Array<{graph:string;from:string;to:string}> } \u2014 within each oralTaskGraph, a node edge/next referencing a node id absent from that graph (discover the real edge field). Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: a graph with node 'a' whose next is 'zzz' (no such node) -> one offender."
+    },
+    {
+      "id": "orphan-items",
+      "worker_model": "claude",
+      "max_iters": 12,
+      "worker_timeout_s": 300,
+      "commit": "feat(qa): detector \u2014 action references an item that is not defined",
+      "allowed_files": [
+        "scripts/qa/orphan-items.ts",
+        "test/qa/orphan-items.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/orphan-items.spec.ts",
+      "spec": "Create a deterministic detector: action references an item that is not defined. export function findOrphanItems(project): { missing: string[] } \u2014 itemId values referenced anywhere that are not defined in the project's item list (discover where items are defined; if no item list exists, return empty for real examples). Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nFIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and the exact field names you need (scenes[] and their id, entities[].components[] with a kind and config, portals[], oralTaskGraphs[].nodes[], teacherActivities[], prefabs[]). Match the detector to the ACTUAL shape you observe. If the specific concept does not exist in the shape, still implement the detector generically and ensure BOTH example projects yield ZERO findings.\n\nHARD RULES: TypeScript only. NodeNext ESM, import specifiers end in .js (the test is in test/qa/, the script in scripts/qa/, so import the script as ../../scripts/qa/<name>.js). Comments explain only WHY. No new dependencies. Surgical: create ONLY the two files named. The CLI form `tsx scripts/qa/<name>.ts <project.json>` must print a JSON summary and process.exit(1) when findings are non-empty, else 0. The vitest spec MUST: (a) load both example projects and assert the detector returns ZERO findings for each, and (b) build an inline fixture that triggers exactly one finding and assert it is detected. VERIFY by running the exact verify command and ensure it passes. If genuinely blocked, STOP and report; never edit unrelated files.\n\nTest fixture: an action referencing itemId 'sword' with no such item defined -> missing ['sword']."
+    }
+  ],
+  "golden_sid": "335bad44-ff62-4ad8-aaba-81d9a13422a7"
+}
