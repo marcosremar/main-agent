@@ -70,7 +70,7 @@ td,th{padding:7px 12px;border-bottom:1px solid #21262d;text-align:left;vertical-
 th{color:#7d8590;font-size:12px;text-transform:uppercase}
 tr:hover{background:#161b22}.tool{font-weight:600;color:#e6edf3}.lane{font-family:monospace;font-size:12px;color:#8b949e}
 .files{font-family:monospace;font-size:11px;color:#6e7681}
-.spec{display:none;white-space:pre-wrap;font-size:11px;color:#8b949e;max-width:900px}
+.spec{display:none;white-space:pre-wrap;font-size:14px;line-height:1.55;color:#c9d1d9;max-width:1000px;background:#0b0f14;border:1px solid #30363d;border-radius:6px;padding:12px;margin-top:8px}
 .id{cursor:pointer;font-weight:600}a{color:#58a6ff}
 </style>
 <header><h1>babylon-cinema · task status <span id=t style=color:#7d8590;font-weight:400></span></h1>
