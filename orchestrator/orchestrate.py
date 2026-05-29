@@ -429,10 +429,15 @@ def main():
         with ThreadPoolExecutor(max_workers=effective) as ex:
             list(ex.map(worker, pending))
     finally:
-        log("stopping sandboxes (billing $0)")
-        for sid in list(live_sids):
-            try: dt.stop(sid)
-            except Exception: pass
+        # stop EVERY sandbox currently in the org (pool + any fresh-provisioned heals that
+        # aren't tracked locally) so billing never leaks after a run.
+        log("stopping all sandboxes (billing $0)")
+        try:
+            for x in dt.list():
+                try: dt.stop(x["id"])
+                except Exception: pass
+        except Exception as e:
+            log(f"WARN final stop sweep: {e}")
 
     with state_lock:
         json.dump(state, open(state_path(ib), "w"), indent=2)
