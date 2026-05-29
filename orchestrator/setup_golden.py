@@ -19,6 +19,8 @@ from creds import claude_credentials_b64, opencode_auth_b64, gh_token
 import os
 KEY = os.environ.get("DAYTONA_API_KEY", "")
 BRANCH = "feat/city-pedestrian-population"
+# prebuilt dumont linux-x64 binary (release asset on the private dumont repo)
+DUMONT_ASSET = "https://api.github.com/repos/marcosremar/dumont-code-agent/releases/assets/433362658"
 SPARSE = "examples/game-engine src/game src/game-engine scripts/qa test package.json package-lock.json vitest.config.ts tsconfig.json"
 
 
@@ -36,6 +38,16 @@ def provision_one(dt, gh, cc, oc, tag="", stop_when_done=True):
                "curl -fsSL https://opencode.ai/install | bash >/tmp/o.log 2>&1; echo CLIS_DONE")
     dt.exec_detached(sid, install, logf)
     dt.exec_wait(sid, "npm i -g", logf, timeout=600)
+    # dumont-code agent (MiniMax M2.7 worker): download the PREBUILT linux binary (release
+    # asset) — self-contained, no clone/bun-install (which was flaky over sandbox network).
+    dlog = f"/tmp/dumont-{sid[:8]}.log"
+    dumont = (
+        "mkdir -p ~/bin && "
+        f"curl -fsSL -H 'Authorization: Bearer {gh}' -H 'Accept: application/octet-stream' "
+        f"{DUMONT_ASSET} -o /tmp/d.gz && gunzip -f /tmp/d.gz && mv /tmp/d ~/bin/dumont && "
+        "chmod +x ~/bin/dumont && ~/bin/dumont --version >/dev/null 2>&1; echo DUMONT_DONE")
+    dt.exec_detached(sid, dumont, dlog)
+    dt.exec_wait(sid, "dumont", dlog, timeout=300)
     dt.exec(sid,
         "mkdir -p ~/.claude ~/.local/share/opencode && "
         f"echo {cc} | base64 -d > ~/.claude/.credentials.json && "

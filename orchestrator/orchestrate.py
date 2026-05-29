@@ -42,10 +42,20 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
     prompt = '"$(cat %s)"' % specfile
     if model == OPUS:
         cmd = f"{OPATH}; cd {wt} && claude -p {prompt} --model claude-opus-4-8 --permission-mode acceptEdits"
+        match = "claude -p"
+    elif model.startswith("dumont"):
+        # dumont-code agent on MiniMax M2.7 — prebuilt binary (cheap, fast worker). Login via
+        # ~/.dumont/.credentials.json, key via $MINIMAX_API_KEY (~/.profile, loaded by bash -l).
+        # model form "dumont" -> minimax/m2-7; "dumont:provider/model" -> that dumont model key
+        dmodel = model.split(":", 1)[1] if ":" in model else "minimax/m2-7"
+        cmd = (f"export DUMONT_CONFIG=$HOME/.dumont/dumont.json; cd {wt} && "
+               f"~/bin/dumont -p {prompt} --model {dmodel} "
+               "--dangerously-skip-permissions --output-format text")
+        match = "dumont"
     else:
         cmd = f"{OPATH}; cd {wt} && opencode run -m {model} {prompt}"
+        match = "opencode run"
     dt.exec_detached(sid, cmd, logfile)
-    match = "claude -p" if model == OPUS else "opencode run"
     return dt.exec_wait(sid, match, logfile, timeout=worker_timeout)
 
 

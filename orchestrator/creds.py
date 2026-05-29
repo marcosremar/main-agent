@@ -24,8 +24,33 @@ def opencode_auth_b64(path="~/.local/share/opencode/auth.json") -> str:
         return base64.b64encode(f.read()).decode()
 
 
+def dumont_config_b64(path="~/.dumont/dumont.json") -> str:
+    """Dumont config (providers incl. MiniMax M2.7). Holds an API key — inject at runtime."""
+    import os
+    p = os.path.expanduser(path)
+    if not os.path.exists(p):
+        return ""
+    with open(p, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
 def gh_token() -> str:
     return _run(["gh", "auth", "token"]).strip()
+
+
+def minimax_key(env_file="/Users/marcos/projects/ai-gateway/.env") -> str:
+    """MiniMax API key for dumont (referenced as $MINIMAX_API_KEY in dumont.json)."""
+    import os
+    k = os.environ.get("MINIMAX_API_KEY")
+    if k:
+        return k
+    try:
+        for line in open(env_file):
+            if line.startswith("MINIMAX_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    except FileNotFoundError:
+        pass
+    return ""
 
 
 def inject_into_sandbox(dt, sid: str, gh: str):
@@ -45,3 +70,16 @@ def inject_into_sandbox(dt, sid: str, gh: str):
     code, out = dt.exec(sid, cmd, timeout=60)
     if "creds-injected" not in out:
         raise RuntimeError(f"cred injection failed: {out}")
+    # dumont (MiniMax M2.7 worker): config ($MINIMAX_API_KEY ref, no secret in it) +
+    # the Claude OAuth at ~/.dumont/.credentials.json (dumont's Linux login path) +
+    # MINIMAX_API_KEY exported in ~/.profile so `bash -l` runs pick it up.
+    dc = dumont_config_b64()
+    if dc:
+        mk = minimax_key()
+        dt.exec(sid,
+            "mkdir -p ~/.dumont && "
+            f"echo {dc} | base64 -d > ~/.dumont/dumont.json && "
+            f"echo {cc} | base64 -d > ~/.dumont/.credentials.json && "
+            "chmod 600 ~/.dumont/dumont.json ~/.dumont/.credentials.json && "
+            f"grep -q MINIMAX_API_KEY ~/.profile 2>/dev/null || echo 'export MINIMAX_API_KEY={mk}' >> ~/.profile && "
+            "echo dumont-cfg", timeout=30)
