@@ -78,6 +78,7 @@ tr:hover{background:#161b22}.tool{font-weight:600;color:#e6edf3}.lane{font-famil
 <table><thead><tr><th>task<th>tool · model<th>status<th>PR<th>iters<th>files / detail</tr></thead><tbody id=b></tbody></table>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
+function tg(s){const e=document.getElementById(s);e.style.display=(e.style.display=='block')?'none':'block';}
 function toolModel(lane, ran){
  // ran = actual final model used (preferred); lane = configured starting worker
  const v=(ran||lane||'').toString();
@@ -92,7 +93,6 @@ async function load(){
  document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join('')+`<span class=pill style=background:#30363d>TOTAL ${rows.length}</span>`;
  document.getElementById('t').textContent=' · '+new Date().toLocaleTimeString();
  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
- const tg=s=>{const e=document.getElementById(s);e.style.display=e.style.display=='block'?'none':'block';};
  document.getElementById('b').innerHTML=rows.map((x,i)=>{const[tool,model]=toolModel(x.lane,x.ran_model);return `<tr>
   <td><b>${x.id}</b><div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
   <td><span class=tool>${tool}</span><div class=lane>${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span style=color:#d29922>(escalou)</span>':''}</div></td>
