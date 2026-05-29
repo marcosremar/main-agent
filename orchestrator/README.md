@@ -24,6 +24,12 @@ python3 orchestrate.py config.json
 ## Verification (two modes, per task)
 - **deterministic** (default): runs the task's `verify_cmd` (e.g. vitest) IN the worker's
   sandbox. A command, not an agent — no extra pool. The test IS the verification.
+- **vision** (`"verifier": "vision"`): for fuzzy 3D/UI criteria. `evidence_cmd` renders an
+  image (`evidence_image`) in the sandbox; it's pulled out and judged by a cheap
+  OPEN-SOURCE vision model via OpenRouter (default `qwen/qwen2.5-vl-72b-instruct`; key from
+  ai-gateway/.env). Returns SCORE + VERDICT. Override with `vision_model` (e.g.
+  `qwen/qwen2.5-vl-32b-instruct` or `meta-llama/llama-3.2-11b-vision-instruct`, even free
+  tiers). Validated on real city renders: correct PASS/FAIL discrimination.
 - **llm** (`"verifier": "llm"`): after the deterministic gate, an INDEPENDENT adversarial
   Opus agent (not the worker) inspects the actual change + optional `evidence_cmd`
   artifacts (e.g. a screenshot) and tries to REFUTE the `criteria`. Must end with

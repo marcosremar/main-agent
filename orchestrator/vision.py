@@ -32,11 +32,17 @@ def _env(name):
     return None
 
 
+# Default = OPEN-SOURCE vision model (cheap, strong). Qwen2.5-VL-72B leads open weights
+# (~70 MMMU, ~888 OCRBench) at $0.25/$0.75 per 1M. Cheaper OSS fallbacks: qwen2.5-vl-32b,
+# meta-llama/llama-3.2-11b-vision-instruct. Override per task via `vision_model`.
+DEFAULT_OSS_MODEL = "qwen/qwen2.5-vl-72b-instruct"
+
+
 def _provider():
-    """Prefer OpenRouter (OpenAI-compatible, reaches gpt-4o-mini / gemini-flash cheaply)."""
+    """OpenRouter (OpenAI-compatible) using the key from ai-gateway/.env. OSS model default."""
     k = _env("OPENROUTER_API_KEY")
     if k:
-        return ("https://openrouter.ai/api/v1/chat/completions", k, "openai/gpt-4o-mini")
+        return ("https://openrouter.ai/api/v1/chat/completions", k, DEFAULT_OSS_MODEL)
     k = _env("OPENAI_API_KEY")
     if k:
         return ("https://api.openai.com/v1/chat/completions", k, "gpt-4o-mini")
