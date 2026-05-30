@@ -462,25 +462,45 @@ def load_state(ib):
 
 def save_state(ib, state, lock):
     with lock:
-        import tempfile
-        p = state_path(ib)
-        tmp = p + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, p)
+        json.dump(state, open(state_path(ib), "w"), indent=2)
+
+
+def _hash_files(gh, ib, files):
+    """Return {filepath: sha1_hex} for files on the given branch (HEAD)."""
+    h = {}
+    for f in files:
+        try:
+            c = gh.file_contents(f, ib)
+            import hashlib as _hm
+            h[f] = _hm.sha1(f"blob {len(c)}\0{c}".encode()).hexdigest()
+        except Exception:
+            pass
+    return h
 
 
 def already_done(gh, ib, task, state):
-    """Resume idempotency: a task is done if the journal says MERGED, or its files are
-    already on the integration branch (a prior run merged it before we journaled)."""
-    if state.get(task["id"], {}).get("status") == "MERGED":
+    """Resume idempotency: a task is done if the journal says MERGED and the current IB
+    HEAD has matching file hashes, OR the file hashes on IB match what was stored (prevents
+    false-positive when allowed_files overlap between tasks). Also checks that allowed_files
+    hash hasn't changed since the last run — different allowed_files = different scope."""
+    tid = task["id"]
+    entry = state.get(tid, {})
+    if entry.get("status") == "MERGED":
+        # hash-based recheck: ensure IB HEAD still has the same content we merged
+        stored_hashes = entry.get("file_hashes", {})
+        allowed = task["allowed_files"]
+        if stored_hashes and allowed:
+            current_hashes = _hash_files(gh, ib, allowed)
+            if current_hashes == stored_hashes:
+                return True
+            # hashes differ — either IB was force-pushed or allowed_files changed
+            allowed_hash = entry.get("allowed_files_hash", "")
+            import hashlib, json as _json
+            current_af_hash = hashlib.sha1(_json.dumps(sorted(allowed)).encode()).hexdigest()
+            if current_af_hash != allowed_hash:
+                return False  # allowed_files changed — not the same task scope
+            return False  # IB diverged — re-run
         return True
-    try:
-        files = task["allowed_files"]
-        if files and all(gh.file_exists(f, ib) for f in files):
-            return True
-    except Exception:
-        pass
     return False
 
 
