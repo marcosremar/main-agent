@@ -1,14 +1,15 @@
-"""Tiny status dashboard — no deps (stdlib http.server).
+"""Tiny status dashboard — no deps (stdlib http.server), Tailwind via CDN.
 
-Cross-references the task definitions (config-*.json) with the orchestrator's state
-journals (state/state-*.json) and serves an auto-refreshing HTML page: which tasks are
-MERGED / FAILED / ERROR / PENDING, by lane, with PR#, iters, files, and the spec on click.
+Cross-references task definitions (config-*.json) with the orchestrator's state journals
+(state/state-*.json) and serves an auto-refreshing page grouped by plan/objective, showing
+each task's description, tool+model, status, PR, and the full prompt on demand.
 
 Run:  python3 dashboard.py [port]      (default 8787)  ->  http://127.0.0.1:8787
 """
 import glob
 import json
 import os
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -16,28 +17,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def collect():
-    tasks = {}          # id -> definition
-    branches = {}       # id -> integration_branch
+    tasks = {}
+    branches = {}
     for cf in sorted(glob.glob(os.path.join(HERE, "config*.json"))):
         try:
             cfg = json.load(open(cf))
         except Exception:
             continue
         ib = cfg.get("integration_branch", "?")
-        # plan label: planner objective if present, else the config filename
         plan = cfg.get("objective") or os.path.basename(cf)
-        planner = cfg.get("planner", "hand")   # "opus" if planner-generated, else hand-written
+        planner = cfg.get("planner", "hand")
         for t in cfg.get("tasks", []):
+            commit = t.get("commit", "")
+            desc = t.get("title") or re.sub(r'^\w+(\([^)]*\))?:\s*', '', commit) or t["id"]
             tasks[t["id"]] = {
-                "id": t["id"],
-                "lane": t.get("worker_model", "?"),
-                "verify": t.get("verify_cmd", ""),
-                "files": t.get("allowed_files", []),
-                "commit": t.get("commit", ""),
-                "spec": t.get("spec", ""),
-                "config": os.path.basename(cf),
-                "plan": plan,
-                "planner": planner,
+                "id": t["id"], "desc": desc, "lane": t.get("worker_model", "?"),
+                "verify": t.get("verify_cmd", ""), "files": t.get("allowed_files", []),
+                "commit": commit, "spec": t.get("spec", ""),
+                "config": os.path.basename(cf), "plan": plan, "planner": planner,
             }
             branches[t["id"]] = ib
     state = {}
@@ -53,79 +50,90 @@ def collect():
         rows.append({**d, "branch": branches.get(tid, "?"),
                      "status": st.get("status", "PENDING"),
                      "pr": st.get("pr"), "iters": st.get("iters"),
-                     "ran_model": st.get("model", ""),   # actual final model (may differ via escalation)
-                     "error": st.get("error", "")})
+                     "ran_model": st.get("model", ""), "error": st.get("error", "")})
     order = {"MERGED": 0, "RUNNING": 1, "PENDING": 2, "FAILED_MAX_ITERS": 3,
-             "OUT_OF_SCOPE": 3, "PR_OUT_OF_SCOPE": 3, "ERROR": 4, "TIMEOUT_BUDGET": 4}
+             "STUCK_NO_PROGRESS": 3, "OUT_OF_SCOPE": 3, "PR_OUT_OF_SCOPE": 3,
+             "TIMEOUT_BUDGET": 4, "WORKTREE_FAILED": 4, "ERROR": 4}
     rows.sort(key=lambda r: (order.get(r["status"], 5), r["id"]))
     return rows
 
 
-PAGE = """<!doctype html><meta charset=utf-8><title>babylon-cinema · task status</title>
-<style>
-body{font:14px -apple-system,system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3}
-header{padding:14px 20px;background:#161b22;border-bottom:1px solid #30363d;position:sticky;top:0}
-h1{font-size:16px;margin:0 0 6px} .sum{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
-.pill{padding:2px 9px;border-radius:12px;font-weight:600}
-.MERGED{background:#1a7f37;color:#fff}.PENDING{background:#30363d;color:#adbac7}
-.FAILED_MAX_ITERS,.OUT_OF_SCOPE,.PR_OUT_OF_SCOPE,.TIMEOUT_BUDGET,.STUCK_NO_PROGRESS{background:#9e6a03;color:#fff}
-.ERROR{background:#cf222e;color:#fff}.RUNNING{background:#1f6feb;color:#fff}
-table{border-collapse:collapse;width:100%}
-td,th{padding:7px 12px;border-bottom:1px solid #21262d;text-align:left;vertical-align:top}
-th{color:#7d8590;font-size:12px;text-transform:uppercase}
-tr:hover{background:#161b22}.tool{font-weight:600;color:#e6edf3}.lane{font-family:monospace;font-size:12px;color:#8b949e}
-.files{font-family:monospace;font-size:11px;color:#6e7681}
-.spec{display:none;white-space:pre-wrap;font-size:14px;line-height:1.55;color:#c9d1d9;max-width:1000px;background:#0b0f14;border:1px solid #30363d;border-radius:6px;padding:12px;margin-top:8px}
-.id{cursor:pointer;font-weight:600}a{color:#58a6ff}
-</style>
-<header><h1>babylon-cinema · task status <span id=t style=color:#7d8590;font-weight:400></span></h1>
-<div class=sum id=sum></div></header>
-<table><thead><tr><th>task<th>tool · model<th>status<th>PR<th>iters<th>files / detail</tr></thead><tbody id=b></tbody></table>
+PAGE = r"""<!doctype html><html lang=pt><head><meta charset=utf-8>
+<title>babylon-cinema · tasks</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={darkMode:'class'}</script>
+</head>
+<body class="bg-slate-950 text-slate-200 font-sans">
+<header class="sticky top-0 z-10 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-6 py-3">
+  <div class="flex items-center gap-3">
+    <h1 class="text-base font-semibold">babylon-cinema</h1>
+    <span class="text-slate-500 text-sm">task status</span>
+    <span id="t" class="text-slate-600 text-xs ml-auto"></span>
+  </div>
+  <div id="sum" class="flex gap-2 flex-wrap mt-2 text-xs"></div>
+</header>
+<main id="main" class="p-6 space-y-6 max-w-6xl mx-auto"></main>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
 const opened=new Set();
-function tg(s){const e=document.getElementById(s);const on=e.style.display!='block';e.style.display=on?'block':'none';if(on)opened.add(s);else opened.delete(s);}
-function toolModel(lane, ran){
- // ran = actual final model used (preferred); lane = configured starting worker
- const v=(ran||lane||'').toString();
- if(v.startsWith('claude')) return ['Claude Code','Opus 4.8'];
- if(v.startsWith('dumont')) return ['Dumont', v.includes(':')? v.split(':')[1] : 'MiniMax M2.7'];
- if(v.startsWith('codex')) return ['Codex', v.includes(':')? v.split(':')[1] : 'gpt-5.3-codex-spark'];
- if(v.startsWith('minimax')) return ['OpenCode', v.replace('minimax/','')];
- return [v||'?',''];
-}
+function tg(s){const e=document.getElementById(s);const on=e.classList.contains('hidden');e.classList.toggle('hidden');if(on)opened.add(s);else opened.delete(s);}
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function toolModel(lane,ran){const v=(ran||lane||'').toString();
+ if(v.startsWith('claude'))return['Claude Code','Opus 4.8','bg-orange-500/20 text-orange-300'];
+ if(v.startsWith('dumont'))return['Dumont',v.includes(':')?v.split(':')[1]:'MiniMax M2.7','bg-cyan-500/20 text-cyan-300'];
+ if(v.startsWith('codex'))return['Codex',v.includes(':')?v.split(':')[1]:'gpt-5.3-codex-spark','bg-violet-500/20 text-violet-300'];
+ if(v.startsWith('minimax'))return['OpenCode',v.replace('minimax/',''),'bg-cyan-500/20 text-cyan-300'];
+ return[v||'?','','bg-slate-700 text-slate-300'];}
+const STC={MERGED:'bg-green-600 text-white',PENDING:'bg-slate-700 text-slate-300',RUNNING:'bg-blue-600 text-white',
+ ERROR:'bg-red-600 text-white',FAILED_MAX_ITERS:'bg-amber-700 text-white',STUCK_NO_PROGRESS:'bg-amber-700 text-white',
+ OUT_OF_SCOPE:'bg-amber-700 text-white',PR_OUT_OF_SCOPE:'bg-amber-700 text-white',TIMEOUT_BUDGET:'bg-amber-700 text-white',WORKTREE_FAILED:'bg-red-700 text-white'};
+function pill(s,cls){return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${s}</span>`;}
 async function load(){
- const r=await fetch('/api/data');const rows=await r.json();
+ const rows=await (await fetch('/api/data')).json();
  const c={};rows.forEach(x=>c[x.status]=(c[x.status]||0)+1);
- document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join('')+`<span class=pill style=background:#30363d>TOTAL ${rows.length}</span>`;
- document.getElementById('t').textContent=' · '+new Date().toLocaleTimeString();
- const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
- // group rows by plan (planner objective or config), show a header + progress per plan
+ document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>pill(k+' '+v,(STC[k]||'bg-slate-700')))
+   .join('')+pill('TOTAL '+rows.length,'bg-slate-800 text-slate-400');
+ document.getElementById('t').textContent=new Date().toLocaleTimeString();
  const groups={};rows.forEach(x=>{(groups[x.plan||'?']=groups[x.plan||'?']||[]).push(x);});
  let html='';let gi=0;
  for(const plan of Object.keys(groups)){
-  const g=groups[plan];const done=g.filter(x=>x.status=='MERGED').length;
-  const pl=g[0].planner=='opus'?'<span class=pill style="background:#6e40c9;color:#fff">🧠 planner</span>':'<span class=pill style="background:#30363d">✍️ \xe0 m\xe3o</span>';
-  const pct=Math.round(done/g.length*100);
-  html+=`<tr style=background:#161b22><td colspan=6 style=padding:10px>${pl} <b>${esc(plan).slice(0,120)}</b>
-    <span style=color:#7d8590> — ${done}/${g.length}</span>
-    <div style="height:5px;background:#30363d;border-radius:3px;margin-top:5px;max-width:380px"><div style="height:5px;background:#1a7f37;border-radius:3px;width:${pct}%"></div></div></td></tr>`;
-  g.forEach(x=>{gi++;const i=gi;const[tool,model]=toolModel(x.lane,x.ran_model);
-   html+=`<tr>
-    <td style=padding-left:22px><b>${x.id}</b><div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
-    <td><span class=tool>${tool}</span><div class=lane>${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span style=color:#d29922>(escalou)</span>':''}</div></td>
-    <td><span class="pill ${x.status}">${x.status}</span></td>
-    <td>${x.pr?`<a href="${REPO}/pull/${x.pr}" target=_blank>#${x.pr}</a>`:''}</td>
-    <td>${x.iters??''}</td>
-    <td><button onclick="tg('s${i}')" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:5px;padding:3px 9px;cursor:pointer">📄 ver prompt</button>
-     <span class=files style=margin-left:8px>${(x.files||[]).join(' · ')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
-     <div class=spec id=s${i}><b style=color:#58a6ff>FERRAMENTA:</b> ${tool} · ${esc(model)}<br><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`;});
+  const g=groups[plan];const done=g.filter(x=>x.status=='MERGED').length;const pct=Math.round(done/g.length*100);
+  const badge=g[0].planner=='opus'?pill('🧠 planner','bg-violet-600 text-white'):pill('✍️ manual','bg-slate-700 text-slate-300');
+  html+=`<section class="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+   <div class="px-4 py-3 border-b border-slate-800">
+     <div class="flex items-center gap-2 flex-wrap">${badge}<span class="font-semibold text-slate-100">${esc(plan)}</span>
+       <span class="text-slate-500 text-sm ml-auto">${done}/${g.length}</span></div>
+     <div class="h-1.5 bg-slate-800 rounded-full mt-2"><div class="h-1.5 bg-green-600 rounded-full" style="width:${pct}%"></div></div>
+   </div>
+   <div class="divide-y divide-slate-800">`;
+  g.forEach(x=>{gi++;const i='s'+gi;const[tool,model,tc]=toolModel(x.lane,x.ran_model);
+   html+=`<div class="px-4 py-3 hover:bg-slate-800/40">
+     <div class="flex items-start gap-3">
+       <div class="flex-1 min-w-0">
+         <div class="font-medium text-slate-100">${esc(x.desc)}</div>
+         <div class="text-xs text-slate-500 font-mono mt-0.5">${x.id}</div>
+       </div>
+       <div class="text-right shrink-0">
+         ${pill(tool,tc)}<div class="text-xs text-slate-500 mt-0.5">${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span class="text-amber-400">↑esc</span>':''}</div>
+       </div>
+       <div class="shrink-0">${pill(x.status,(STC[x.status]||'bg-slate-700'))}</div>
+       <div class="shrink-0 text-sm w-12 text-right">${x.pr?`<a class="text-blue-400 hover:underline" target=_blank href="${REPO}/pull/${x.pr}">#${x.pr}</a>`:''}</div>
+       <div class="shrink-0 text-xs text-slate-500 w-8 text-right">${x.iters??''}</div>
+     </div>
+     ${x.error?`<div class="text-xs text-red-400 mt-1">${esc(x.error).slice(0,300)}</div>`:''}
+     <button onclick="tg('${i}')" class="mt-2 text-xs text-blue-400 hover:text-blue-300">📄 ver prompt</button>
+     <div id="${i}" class="hidden mt-2 p-3 rounded-lg bg-slate-950 border border-slate-800 text-sm whitespace-pre-wrap leading-relaxed text-slate-300">
+       <span class="text-blue-400 font-semibold">FERRAMENTA:</span> ${tool} · ${esc(model)}
+       <span class="text-blue-400 font-semibold">  VERIFY:</span> ${esc(x.verify)}
+       <div class="text-blue-400 font-semibold mt-2">PROMPT ENVIADO:</div>${esc(x.spec)}</div>
+   </div>`;});
+  html+=`</div></section>`;
  }
- document.getElementById('b').innerHTML=html;
- opened.forEach(s=>{const e=document.getElementById(s);if(e)e.style.display='block';});
+ document.getElementById('main').innerHTML=html;
+ opened.forEach(s=>{const e=document.getElementById(s);if(e)e.classList.remove('hidden');});
 }
 load();setInterval(load,5000);
-</script>"""
+</script></body></html>"""
 
 
 class H(BaseHTTPRequestHandler):
@@ -133,14 +141,15 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/data"):
             body = json.dumps(collect()).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body))); self.end_headers()
-            self.wfile.write(body)
+            ctype = "application/json"
         else:
             body = PAGE.encode()
-            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body))); self.end_headers()
-            self.wfile.write(body)
+            ctype = "text/html; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 if __name__ == "__main__":
