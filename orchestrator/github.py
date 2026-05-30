@@ -33,19 +33,18 @@ class GitHub:
             except urllib.error.HTTPError as e:
                 code = e.code
                 body_txt = e.read().decode()[:400]
+                last = RuntimeError(f"{method} {path} -> HTTP {code}: {body_txt}")
                 if code == 401:
-                    raise RuntimeError(f"{method} {path} -> HTTP 401 (token expired/unauthorized): {body_txt}") from e
+                    raise last from e
                 # 403 with rate-limit header or "API rate limit" = rate-limited, retry
                 if code == 403 and "rate limit" in body_txt.lower() and attempt < retries - 1:
                     wait = min(60, 10 * (attempt + 1))
                     time.sleep(wait + random.uniform(0, 2))
-                    last = RuntimeError(f"{method} {path} -> HTTP {code} (rate-limited): {body_txt}")
                     continue
                 if code in (502, 503, 504) and attempt < retries - 1:
                     time.sleep(min(30, 2 ** (attempt + 1)) + random.uniform(0, 1))
-                    last = RuntimeError(f"{method} {path} -> HTTP {code}: {body_txt}")
                     continue
-                raise RuntimeError(f"{method} {path} -> HTTP {code}: {body_txt}")
+                raise last
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 last = RuntimeError(f"{method} {path} -> {type(e).__name__}: {e}")
                 if attempt < retries - 1:
@@ -93,6 +92,17 @@ class GitHub:
                 break
         return files
 
+    def ref_exists(self, ref: str) -> bool:
+        """Check if a git ref (e.g. 'heads/main') exists on the remote."""
+        try:
+            self._req("GET", f"/repos/{self.repo}/git/ref/{ref}")
+            return True
+        except RuntimeError as e:
+            msg = str(e)
+            if "404" in msg or "422" in msg:
+                return False
+            raise
+
     def file_exists(self, path: str, ref: str) -> bool:
         try:
             self._req("GET", f"/repos/{self.repo}/contents/{path}?ref={ref}")
@@ -109,3 +119,18 @@ class GitHub:
             return None
         # pick the newest PR if multiple exist (e.g. from retries)
         return sorted(prs, key=lambda p: p["number"], reverse=True)[0]
+
+    def branch_exists(self, branch: str) -> bool:
+        """Check if a branch exists on the remote."""
+        try:
+            self._req("GET", f"/repos/{self.repo}/branches/{branch}")
+            return True
+        except RuntimeError as e:
+            if "404" in str(e):
+                return False
+            raise
+
+    def merge_branch_to_ib(self, branch: str, base: str) -> dict:
+        """Merge a branch INTO another branch (used for post-merge compat: IB -> PR branch)."""
+        return self._req("POST", f"/repos/{self.repo}/merges",
+                         {"base": base, "head": branch})

@@ -8,6 +8,7 @@ Hard-won lessons baked in:
 import json
 import random
 import time
+import uuid
 import urllib.request
 import urllib.error
 
@@ -96,10 +97,7 @@ class Daytona:
         restart ~1.2s). Endpoint is POST /sandbox/{id}/autostop/{minutes}. Safe to set low
         (e.g. 1) during a run: the 10s exec_wait polling keeps lastActivity fresh, so it only
         fires once the sandbox is genuinely idle (task done)."""
-        try:
-            self._req("POST", f"/sandbox/{sid}/autostop/{minutes}")
-        except Exception as e:
-            print(f"WARN set_autostop {sid[:8]}: {e}", flush=True)
+        self._req("POST", f"/sandbox/{sid}/autostop/{minutes}")
 
     def get(self, sid: str):
         return self._req("GET", f"/sandbox/{sid}")
@@ -164,6 +162,8 @@ class Daytona:
 
     def _wait_state(self, sid: str, target: str, timeout=120):
         t0 = time.time()
+        interval = 2
+        max_interval = 30
         while True:
             if time.time() - t0 > timeout:
                 raise TimeoutError(f"{sid} not {target} after {timeout}s")
@@ -172,7 +172,8 @@ class Daytona:
                     return
             except RuntimeError:
                 pass  # transient API error — keep polling
-            time.sleep(1)
+            time.sleep(interval)
+            interval = min(max_interval, interval * 2)
 
     # --- exec ---
     def exec(self, sid: str, command: str, timeout=120, retries=3):
@@ -191,7 +192,7 @@ class Daytona:
                        {"command": wrapped}, timeout=timeout, retries=retries)
         return r.get("exitCode"), r.get("result", "")
 
-    SENTINEL = "__CMD_DONE__"
+    SENTINEL = uuid.uuid4().hex
     _MAX_INLINE = 5000
 
     def exec_detached(self, sid: str, command: str, logfile: str) -> None:

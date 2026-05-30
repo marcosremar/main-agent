@@ -1,5 +1,6 @@
 orchestrator/state/
 orchestrator/__pycache__/
+orchestrator/.env
 __pycache__/
 *.pyc
 .openchrome/

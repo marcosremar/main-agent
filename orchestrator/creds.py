@@ -117,7 +117,6 @@ def minimax_key(env_file="~/projects/ai-gateway/.env") -> str:
 
 
 def inject_into_sandbox(dt, sid: str, gh: str):
-    """Write Claude + OpenCode creds and git credentials onto the sandbox disk."""
     cc = claude_credentials_b64()
     oc = opencode_auth_b64()
     cmd = (
@@ -133,18 +132,8 @@ def inject_into_sandbox(dt, sid: str, gh: str):
     code, out = dt.exec(sid, cmd, timeout=60)
     if "creds-injected" not in out:
         raise RuntimeError(f"cred injection failed: {out}")
-    # Claude Code auth = long-lived setup-token via CLAUDE_CODE_OAUTH_TOKEN (overrides the
-    # short-lived keychain creds, which expire mid-session and 401 even at 1 call). Exported
-    # in ~/.profile so `bash -l` worker/validator runs pick it up.
     oat = claude_oat_token()
-    if oat:
-        # env token is authoritative -> drop the stale keychain credentials.json so claude
-        # can't fall back to the dead short-lived token. Replace existing OAT line instead of
-        # accumulating duplicates when token is rotated between batches.
-        dt.exec(sid, f"rm -f ~/.claude/.credentials.json; "
-                     f"sed -i '/^export CLAUDE_CODE_OAUTH_TOKEN=/d' ~/.profile; "
-                     f"echo 'export CLAUDE_CODE_OAUTH_TOKEN={oat}' >> ~/.profile; echo oat-set", timeout=30)
-    # codex (gpt-5.3-codex-spark worker): ChatGPT auth + config (model pin), if present locally
+    mk = minimax_key()
     ca, cc2 = codex_auth_b64(), codex_config_b64()
     if ca:
         cmd2 = f"mkdir -p ~/.codex && echo {ca} | base64 -d > ~/.codex/auth.json && chmod 600 ~/.codex/auth.json"
@@ -152,16 +141,12 @@ def inject_into_sandbox(dt, sid: str, gh: str):
             cmd2 += f" && echo {cc2} | base64 -d > ~/.codex/config.toml"
         cmd2 += " && echo codex-cfg"
         dt.exec(sid, cmd2, timeout=30)
-    # dumont (MiniMax M2.7 worker): config ($MINIMAX_API_KEY ref, no secret in it) +
-    # the Claude OAuth at ~/.dumont/.credentials.json (dumont's Linux login path) +
-    # MINIMAX_API_KEY exported in ~/.profile so `bash -l` runs pick it up.
     dc = dumont_config_b64()
     if dc:
-        mk = minimax_key()
         dt.exec(sid,
             "mkdir -p ~/.dumont && "
             f"echo {dc} | base64 -d > ~/.dumont/dumont.json && "
             f"echo {cc} | base64 -d > ~/.dumont/.credentials.json && "
             "chmod 600 ~/.dumont/dumont.json ~/.dumont/.credentials.json && "
-            f"grep -q MINIMAX_API_KEY ~/.profile 2>/dev/null || echo 'export MINIMAX_API_KEY={mk}' >> ~/.profile && "
             "echo dumont-cfg", timeout=30)
+    return {"oat": oat, "minimax_key": mk}
