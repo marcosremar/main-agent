@@ -24,6 +24,9 @@ def collect():
         except Exception:
             continue
         ib = cfg.get("integration_branch", "?")
+        # plan label: planner objective if present, else the config filename
+        plan = cfg.get("objective") or os.path.basename(cf)
+        planner = cfg.get("planner", "hand")   # "opus" if planner-generated, else hand-written
         for t in cfg.get("tasks", []):
             tasks[t["id"]] = {
                 "id": t["id"],
@@ -33,6 +36,8 @@ def collect():
                 "commit": t.get("commit", ""),
                 "spec": t.get("spec", ""),
                 "config": os.path.basename(cf),
+                "plan": plan,
+                "planner": planner,
             }
             branches[t["id"]] = ib
     state = {}
@@ -95,15 +100,28 @@ async function load(){
  document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>`<span class="pill ${k}">${k} ${v}</span>`).join('')+`<span class=pill style=background:#30363d>TOTAL ${rows.length}</span>`;
  document.getElementById('t').textContent=' · '+new Date().toLocaleTimeString();
  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
- document.getElementById('b').innerHTML=rows.map((x,i)=>{const[tool,model]=toolModel(x.lane,x.ran_model);return `<tr>
-  <td><b>${x.id}</b><div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
-  <td><span class=tool>${tool}</span><div class=lane>${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span style=color:#d29922>(escalou)</span>':''}</div></td>
-  <td><span class="pill ${x.status}">${x.status}</span></td>
-  <td>${x.pr?`<a href="${REPO}/pull/${x.pr}" target=_blank>#${x.pr}</a>`:''}</td>
-  <td>${x.iters??''}</td>
-  <td><button onclick="tg('s${i}')" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:5px;padding:3px 9px;cursor:pointer">📄 ver prompt</button>
-   <span class=files style=margin-left:8px>${(x.files||[]).join(' · ')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
-   <div class=spec id=s${i}><b style=color:#58a6ff>FERRAMENTA:</b> ${tool} · ${esc(model)}<br><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`}).join('');
+ // group rows by plan (planner objective or config), show a header + progress per plan
+ const groups={};rows.forEach(x=>{(groups[x.plan||'?']=groups[x.plan||'?']||[]).push(x);});
+ let html='';let gi=0;
+ for(const plan of Object.keys(groups)){
+  const g=groups[plan];const done=g.filter(x=>x.status=='MERGED').length;
+  const pl=g[0].planner=='opus'?'<span class=pill style="background:#6e40c9;color:#fff">🧠 planner</span>':'<span class=pill style="background:#30363d">✍️ \xe0 m\xe3o</span>';
+  const pct=Math.round(done/g.length*100);
+  html+=`<tr style=background:#161b22><td colspan=6 style=padding:10px>${pl} <b>${esc(plan).slice(0,120)}</b>
+    <span style=color:#7d8590> — ${done}/${g.length}</span>
+    <div style="height:5px;background:#30363d;border-radius:3px;margin-top:5px;max-width:380px"><div style="height:5px;background:#1a7f37;border-radius:3px;width:${pct}%"></div></div></td></tr>`;
+  g.forEach(x=>{gi++;const i=gi;const[tool,model]=toolModel(x.lane,x.ran_model);
+   html+=`<tr>
+    <td style=padding-left:22px><b>${x.id}</b><div style=color:#7d8590;font-size:12px;max-width:340px>${esc(x.commit)}</div></td>
+    <td><span class=tool>${tool}</span><div class=lane>${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span style=color:#d29922>(escalou)</span>':''}</div></td>
+    <td><span class="pill ${x.status}">${x.status}</span></td>
+    <td>${x.pr?`<a href="${REPO}/pull/${x.pr}" target=_blank>#${x.pr}</a>`:''}</td>
+    <td>${x.iters??''}</td>
+    <td><button onclick="tg('s${i}')" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;border-radius:5px;padding:3px 9px;cursor:pointer">📄 ver prompt</button>
+     <span class=files style=margin-left:8px>${(x.files||[]).join(' · ')}</span>${x.error?`<div style=color:#f85149;font-size:11px>${esc(x.error).slice(0,300)}</div>`:''}
+     <div class=spec id=s${i}><b style=color:#58a6ff>FERRAMENTA:</b> ${tool} · ${esc(model)}<br><b style=color:#58a6ff>VERIFY:</b> ${esc(x.verify)}<br><b style=color:#58a6ff>PROMPT ENVIADO:</b><br>${esc(x.spec)}</div></td></tr>`;});
+ }
+ document.getElementById('b').innerHTML=html;
  opened.forEach(s=>{const e=document.getElementById(s);if(e)e.style.display='block';});
 }
 load();setInterval(load,5000);
