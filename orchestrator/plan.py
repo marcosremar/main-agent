@@ -17,7 +17,7 @@ import tempfile
 
 REPO = "/Users/marcos/projects/babylon-cinema"
 BRAIN = "/Users/marcos/projects/babylon-cinema-brain"
-IB = "integration/agent-pipeline-test"
+IB_PLACEHOLDER = "integration/agent-pipeline-test"
 
 
 def roadmap_context(objective: str) -> str:
@@ -70,6 +70,7 @@ def run_planner(objective: str, n: int) -> list:
     avoid = ", ".join(all_done)
     if all_done:
         print(f"  (avoid list: {len(all_done)} existing ids across all configs)", flush=True)
+    safe_obj = _safe_objective(objective)
     rmctx = roadmap_context(objective)
     prompt = f"""You are a PLANNER for the babylon-cinema doctorate project. The REAL tasks
 come from the roadmap below — decompose THOSE, do not invent unrelated work.
@@ -81,7 +82,7 @@ Read the relevant code in this repo to ground your plan
 detectors under scripts/qa). Decompose this OBJECTIVE into up to {n} SMALL, INDEPENDENT,
 verifiable tasks that can each be done by one agent touching ~1-3 files.
 
-OBJECTIVE: {objective}
+OBJECTIVE: {safe_obj}
 
 Each task MUST be independent (no two tasks edit the same file) and verifiable by a command.
 Spread the worker_model lanes EVENLY across "dumont", "codex", and "claude" (roughly a
@@ -139,22 +140,20 @@ Output ONLY a JSON array (no prose, no markdown fence) of objects with these key
   "evidence_cmd": REQUIRED when verifier is "vision" — command that renders the PNG
   "evidence_image": REQUIRED when verifier is "vision" — path to the rendered PNG
 Output the JSON array and nothing else."""
-    # Have the agent WRITE the JSON to a file (avoids stdout escaping/truncation issues
-    # with spec strings full of backslashes/quotes). Read+parse the file, tolerant of
-    # invalid JSON escapes the model may emit (\s, \. from regex specs).
-    import tempfile as _tmp
-    outfile = _tmp.mktemp(suffix="-plan-out.json", dir=os.path.join(REPO))   # inside cwd so claude can write it
+    safe_obj_for_file = _safe_objective(objective, max_len=100)
+    outfile = tempfile.NamedTemporaryFile(
+        suffix="-plan-out.json", prefix=f"plan-{safe_obj_for_file[:40]}-",
+        dir=os.path.join(REPO), delete=False
+    ).name
     prompt += (f"\n\nDo NOT print the JSON. Instead use the Write tool to write the JSON "
                f"array to the file {outfile}. Make sure it is valid JSON (escape every "
                f"backslash inside a string as \\\\). Then stop.")
     env = dict(os.environ, CLAUDE_CODE_OAUTH_TOKEN=oat)
-    if os.path.exists(outfile):
-        os.remove(outfile)
+    print("Planning... (streaming output disabled — this takes a few minutes)", flush=True)
     try:
         result = subprocess.run(["claude", "-p", "--model", "claude-opus-4-8",
                         "--permission-mode", "acceptEdits"],
-                       input=prompt, capture_output=True, text=True, env=env,
-                       cwd=REPO, timeout=600)
+                       input=prompt, text=True, env=env, cwd=REPO, timeout=600)
         if result.returncode != 0:
             print(f"WARN planner exited {result.returncode}: {result.stderr[-300:]}", flush=True)
     except subprocess.TimeoutExpired:
@@ -168,7 +167,6 @@ Output the JSON array and nothing else."""
     try:
         tasks = json.loads(raw)
     except json.JSONDecodeError:
-        # salvage: escape backslashes that aren't valid JSON escapes
         fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw)
         tasks = json.loads(fixed)
     try:
@@ -180,15 +178,13 @@ Output the JSON array and nothing else."""
     for t in tasks:
         if t.get("id") in avoidset:
             continue
-        if not all(k in t for k in ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")):
-            continue
-        # keep verifier config only if coherent, else fall back to the deterministic gate
-        # (which still gets the always-on Opus validation downstream).
         v = t.get("verifier")
-        if v == "vision" and not (t.get("criteria") and t.get("evidence_cmd") and t.get("evidence_image")):
-            t.pop("verifier", None)
-        elif v == "llm" and not t.get("criteria"):
-            t.pop("verifier", None)
+        if v == "vision":
+            req = ("id", "worker_model", "commit", "allowed_files", "spec", "evidence_cmd", "criteria", "evidence_image")
+            if not all(k in t for k in req):
+                continue
+        elif not all(k in t for k in ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")):
+            continue
         t.setdefault("max_iters", 12)
         t.setdefault("no_progress_limit", 5)
         t.setdefault("worker_timeout_s", 600)
@@ -203,9 +199,10 @@ def main():
     out = sys.argv[3] if len(sys.argv) > 3 else "config-planned.json"
     print(f"planning ({n}) for: {objective}")
     tasks = run_planner(objective, n)
-    cfg = {"integration_branch": IB, "max_concurrent": 45, "per_lane_max": 15,
+    ib = _integration_branch()
+    cfg = {"integration_branch": ib, "max_concurrent": 45, "per_lane_max": 15,
            "global_deadline_s": 7200, "pool_sids": [],
-           "objective": objective, "planner": "opus",   # surfaced in the dashboard
+           "objective": objective, "planner": "opus",
            "tasks": tasks}
     json.dump(cfg, open(out, "w"), indent=2)
     print(f"\nwrote {out} with {len(tasks)} tasks:")
