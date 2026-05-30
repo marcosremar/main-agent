@@ -71,11 +71,15 @@ PAGE = r"""<!doctype html><html lang=pt><head><meta charset=utf-8>
     <span id="t" class="text-slate-600 text-xs ml-auto"></span>
   </div>
   <div id="sum" class="flex gap-2 flex-wrap mt-2 text-xs"></div>
+  <div id="filters" class="flex gap-2 mt-2 text-xs"></div>
 </header>
 <main id="main" class="p-6 space-y-6 max-w-6xl mx-auto"></main>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
 const opened=new Set();
+let mode='active';   // 'active' (not merged) | 'done' | 'all' — default focuses on remaining work
+function setMode(m){mode=m;load();}
+function inMode(s){return mode=='all'?true:(mode=='done'?s=='MERGED':s!='MERGED');}
 function tg(s){const e=document.getElementById(s);const on=e.classList.contains('hidden');e.classList.toggle('hidden');if(on)opened.add(s);else opened.delete(s);}
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
 function toolModel(lane,ran){const v=(ran||lane||'').toString();
@@ -89,20 +93,26 @@ const STC={MERGED:'bg-green-600 text-white',PENDING:'bg-slate-700 text-slate-300
  OUT_OF_SCOPE:'bg-amber-700 text-white',PR_OUT_OF_SCOPE:'bg-amber-700 text-white',TIMEOUT_BUDGET:'bg-amber-700 text-white',WORKTREE_FAILED:'bg-red-700 text-white'};
 function pill(s,cls){return `<span class="px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${s}</span>`;}
 async function load(){
- const rows=await (await fetch('/api/data')).json();
- const c={};rows.forEach(x=>c[x.status]=(c[x.status]||0)+1);
+ const all=await (await fetch('/api/data')).json();
+ const c={};all.forEach(x=>c[x.status]=(c[x.status]||0)+1);
  document.getElementById('sum').innerHTML=Object.entries(c).map(([k,v])=>pill(k+' '+v,(STC[k]||'bg-slate-700')))
-   .join('')+pill('TOTAL '+rows.length,'bg-slate-800 text-slate-400');
+   .join('')+pill('TOTAL '+all.length,'bg-slate-800 text-slate-400');
+ const fb=(m,label)=>`<button onclick="setMode('${m}')" class="px-3 py-1 rounded-full ${mode==m?'bg-blue-600 text-white':'bg-slate-800 text-slate-400'}">${label}</button>`;
+ const nActive=all.filter(x=>x.status!='MERGED').length, nDone=all.filter(x=>x.status=='MERGED').length;
+ document.getElementById('filters').innerHTML=fb('active','⏳ Em andamento ('+nActive+')')+fb('done','✅ Concluídas ('+nDone+')')+fb('all','Todas ('+all.length+')');
+ const rows=all.filter(x=>inMode(x.status));
  document.getElementById('t').textContent=new Date().toLocaleTimeString();
+ // full per-plan stats (from ALL tasks) so the progress bar is correct even when filtered
+ const pstat={};all.forEach(x=>{const p=x.plan||'?';pstat[p]=pstat[p]||{done:0,total:0};pstat[p].total++;if(x.status=='MERGED')pstat[p].done++;});
  const groups={};rows.forEach(x=>{(groups[x.plan||'?']=groups[x.plan||'?']||[]).push(x);});
  let html='';let gi=0;
  for(const plan of Object.keys(groups)){
-  const g=groups[plan];const done=g.filter(x=>x.status=='MERGED').length;const pct=Math.round(done/g.length*100);
+  const g=groups[plan];const done=pstat[plan].done;const total=pstat[plan].total;const pct=Math.round(done/total*100);
   const badge=g[0].planner=='opus'?pill('🧠 planner','bg-violet-600 text-white'):pill('✍️ manual','bg-slate-700 text-slate-300');
   html+=`<section class="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
    <div class="px-4 py-3 border-b border-slate-800">
      <div class="flex items-center gap-2 flex-wrap">${badge}<span class="font-semibold text-slate-100">${esc(plan)}</span>
-       <span class="text-slate-500 text-sm ml-auto">${done}/${g.length}</span></div>
+       <span class="text-slate-500 text-sm ml-auto">${done}/${total}</span></div>
      <div class="h-1.5 bg-slate-800 rounded-full mt-2"><div class="h-1.5 bg-green-600 rounded-full" style="width:${pct}%"></div></div>
    </div>
    <div class="divide-y divide-slate-800">`;
