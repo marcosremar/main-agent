@@ -15,7 +15,29 @@ import subprocess
 import sys
 
 REPO = "/Users/marcos/projects/babylon-cinema"
+BRAIN = "/Users/marcos/projects/babylon-cinema-brain"
 IB = "integration/agent-pipeline-test"
+
+
+def roadmap_context(objective: str) -> str:
+    """Pull the real task source: the ROADMAP epic matching the objective + the CHECKLIST.
+    These are the REAL tasks (the doctorate plan), not invented filler."""
+    ctx = []
+    try:
+        rm = open(os.path.join(BRAIN, "ROADMAP.md")).read()
+        # find the epic section whose header best matches the objective words
+        epics = re.split(r'(?=^## )', rm, flags=re.M)
+        words = set(w.lower() for w in re.findall(r'\w+', objective))
+        best = max(epics, key=lambda e: len(words & set(re.findall(r'\w+', e.lower()))), default="")
+        if best.strip():
+            ctx.append("RELEVANT ROADMAP EPIC:\n" + best.strip()[:4000])
+    except Exception:
+        pass
+    try:
+        ctx.append("\nCHECKLIST (phase status):\n" + open(os.path.join(BRAIN, "CHECKLIST.md")).read()[:2500])
+    except Exception:
+        pass
+    return "\n".join(ctx)
 
 
 def done_ids():
@@ -40,7 +62,13 @@ def done_ids():
 def run_planner(objective: str, n: int) -> list:
     oat = open(os.path.expanduser("~/.claude-oat-token")).read().strip()
     avoid = ", ".join(done_ids())
-    prompt = f"""You are a PLANNER. Read the relevant code in this repo to ground your plan
+    rmctx = roadmap_context(objective)
+    prompt = f"""You are a PLANNER for the babylon-cinema doctorate project. The REAL tasks
+come from the roadmap below — decompose THOSE, do not invent unrelated work.
+
+{rmctx}
+
+Read the relevant code in this repo to ground your plan
 (schemas under src/game-engine/core/schemas, examples under examples/game-engine, existing
 detectors under scripts/qa). Decompose this OBJECTIVE into up to {n} SMALL, INDEPENDENT,
 verifiable tasks that can each be done by one agent touching ~1-3 files.
