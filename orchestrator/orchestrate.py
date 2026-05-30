@@ -41,6 +41,8 @@ WORKER_CLAUDE_MODEL = os.environ.get("WORKER_CLAUDE_MODEL", "claude-opus-4-8")
 MINIMAX = "minimax/MiniMax-M2.7"
 OPATH = "export PATH=$PATH:$HOME/.opencode/bin"
 
+SENTINEL = uuid.uuid4().hex  # unique per run — never collides with spec content
+
 
 class Escalate(Exception):
     def __init__(self, new_lane, spec):
@@ -49,7 +51,7 @@ class Escalate(Exception):
         super().__init__(f"escalate to {new_lane}")
 
 
-def log(msg): print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+def log(msg): print(f"[{datetime.now(timezone.utc).isoformat()}] {msg}", flush=True)
 
 
 def b64(s: str) -> str:
