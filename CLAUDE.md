@@ -289,11 +289,16 @@ opencode run -m minimax/MiniMax-M2.7 --dir /Users/marcos/projects/babylon-cinema
 | Clearly-scoped feature / well-specified edit | MiniMax M2.7 |
 | Moderate refactor, test writing, codemod, scaffolding | MiniMax M2.7 |
 
-**Current policy (2026-05-29): ALL workers = Opus 4.8 (Claude Code).** MiniMax via
-`opencode run` proved unreliable in practice — flaky (passes one run, fails the next) and
-hangs (8min+ stuck) — so it is disabled as a worker for now. Re-enable MiniMax only for
-proven-trivial mechanical tasks once its reliability is sorted. Until then the
-orchestrator runs every worker on Opus.
+**Current policy (2026-05-30): two worker lanes, routed by difficulty (brain classifies
+each task).**
+- **Hard tasks → Opus 4.8 (Claude Code)**: design, cross-file reasoning, tricky bugs,
+  engine core, anything where a wrong call is costly.
+- **Easy/simple tasks → dumont-code agent on MiniMax M2.7** (worker model `dumont`):
+  well-specified, low-risk, mechanical (simple detectors, boilerplate, localized edits).
+  ~$0.08/call, prebuilt binary baked into the golden (instant spawn). This REPLACES the
+  old `opencode run` MiniMax lane, which was flaky/hung — dumont's prebuilt binary is the
+  reliable cheap lane now.
+Borderline → Opus. On verify failure, dumont can escalate to Opus (same loop logic).
 
 **Principle (when both are in play): keep BOTH maxed out — they complement for max throughput.**
 The goal is to ship tasks as fast as possible, so load up ~30–40 agents on each side in

@@ -1,0 +1,131 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 45,
+  "per_lane_max": 15,
+  "global_deadline_s": 7200,
+  "pool_sids": [],
+  "objective": "\u00c9PICO QA Lingu\u00edstico \u2014 detectores e checagens de qualidade lingu\u00edstica (idioma incorreto, CEFR, consist\u00eancia terminol\u00f3gica) sobre os manifestos e conte\u00fado",
+  "planner": "opus",
+  "tasks": [
+    {
+      "id": "content-wrong-language",
+      "title": "Wrong-language detector: flag learner strings whose actual language differs from declared targetLanguage",
+      "worker_model": "claude",
+      "commit": "feat(qa): detect content in the wrong language vs declared targetLanguage",
+      "allowed_files": [
+        "scripts/qa/detectors/content-wrong-language.ts",
+        "test/qa/detectors/content-wrong-language.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/content-wrong-language.spec.ts",
+      "spec": "Build a DETERMINISTIC detector (no LLM, no network) that catches the 'achado na padaria' bug: a learner-facing string written in the wrong language for its scene (e.g. a Portuguese line inside a fr-FR activity). Create scripts/qa/detectors/content-wrong-language.ts. It imports the existing extractor types via `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export an interface `WrongLanguageIssue { stringId: string; filePath: string; jsonPath: string; text: string; declaredLanguage: string; guessedLanguage: string; }` and a pure function `detectWrongLanguage(strings: ExtractedString[]): WrongLanguageIssue[]`. Implement a lightweight language guesser inside this file (no new dependency) for the three project languages \u2014 pt, fr, en \u2014 using (a) per-language stopword/function-word sets (e.g. pt: 'o','a','de','que','n\u00e3o','voc\u00ea','obrigado'; fr: 'le','la','de','que','vous','merci','bonjour','s'il'; en: 'the','you','please','thanks','hello','is') scored by token-overlap and (b) diacritic/orthography hints (\u00e7+\u00e3/\u00f5 lean pt, accented \u00e9/\u00e8/\u00e0 + '\u0153'/apostrophe-elision lean fr, ascii-only leans en). Normalize the declared `targetLanguage` to its 2-letter base (fr-FR -> fr). Only evaluate strings where the base language is one of pt/fr/en AND the string has >= 3 word tokens (skip single tokens, numbers, urls); skip strings whose targetLanguage base is not in {pt,fr,en} or is 'unknown'. Flag a string ONLY when the guesser's top language is confident (clear margin over second place) AND differs from the declared base. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/content-wrong-language.spec.ts with hermetic inline fixtures: build ExtractedString[] by hand covering (1) a fr-FR string that is actually Portuguese -> flagged with guessedLanguage 'pt'; (2) a correct fr-FR French string -> NOT flagged; (3) a correct pt-BR string -> NOT flagged; (4) an en string with targetLanguage 'en-US' -> NOT flagged; (5) a short/1-word string -> NOT flagged regardless. Do NOT finish until `npx vitest run test/qa/detectors/content-wrong-language.spec.ts` passes. Do not edit any file outside the two allowed paths.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "cefr-lexical-complexity-audit",
+      "title": "CEFR audit (lexical): flag A1/A2 teaching strings whose length/word-count exceeds the declared level",
+      "worker_model": "codex",
+      "commit": "feat(qa): CEFR lexical-complexity audit for over-level learner strings",
+      "allowed_files": [
+        "scripts/qa/detectors/cefr-lexical-complexity-audit.ts",
+        "test/qa/detectors/cefr-lexical-complexity-audit.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/cefr-lexical-complexity-audit.spec.ts",
+      "spec": "Build a DETERMINISTIC CEFR audit (no LLM, no network) that flags 'A1-com-A2 / A2-com-B1' over-level content using a sentence-length / word-count proxy. Create scripts/qa/detectors/cefr-lexical-complexity-audit.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface CefrComplexityIssue { stringId: string; filePath: string; jsonPath: string; text: string; declaredCefr: string; reason: string; maxWordsPerSentence: number; observedMaxWords: number; }` and a pure function `auditCefrLexicalComplexity(strings: ExtractedString[]): CefrComplexityIssue[]`. Only audit strings whose `role` is 'teaching-input' or 'instruction' and whose `cefrLevel` is a known level (A1,A2,B1,B2,C1,C2). Define an upper bound on words-per-sentence per level (A1: 8, A2: 12, B1: 18, B2: 25, C1/C2: no flag). Split `text` into sentences on [.!?\u2026] (keep clause splits simple and language-neutral), count word tokens per sentence (whitespace split, strip punctuation), and flag the string when its longest sentence exceeds the level's bound \u2014 `reason` says e.g. 'A1 line has a 14-word sentence (max 8) -> reads as A2+'. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/cefr-lexical-complexity-audit.spec.ts with hermetic inline ExtractedString[] fixtures: (1) an A1 teaching-input with one 15-word sentence -> flagged; (2) an A1 teaching-input that is two short 4-word sentences -> NOT flagged; (3) a B2 string with a 22-word sentence -> NOT flagged; (4) a string with cefrLevel null -> NOT flagged; (5) a 'vocab' role string -> NOT flagged. Do NOT finish until `npx vitest run test/qa/detectors/cefr-lexical-complexity-audit.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "cefr-grammar-structure-audit",
+      "title": "CEFR audit (grammar): flag above-level grammatical structures in A1/A2 content",
+      "worker_model": "claude",
+      "commit": "feat(qa): CEFR grammar-structure audit for above-level verb forms",
+      "allowed_files": [
+        "scripts/qa/detectors/cefr-grammar-structure-audit.ts",
+        "test/qa/detectors/cefr-grammar-structure-audit.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/cefr-grammar-structure-audit.spec.ts",
+      "spec": "Build a DETERMINISTIC CEFR grammar audit (no LLM, no network) complementary to the lexical one: flag grammatical structures that are clearly above the declared CEFR level (e.g. subjunctive / conditional / compound-perfect appearing in A1/A2 content). Create scripts/qa/detectors/cefr-grammar-structure-audit.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface CefrGrammarIssue { stringId: string; filePath: string; jsonPath: string; text: string; declaredCefr: string; marker: string; markerLevel: string; }` and a pure function `auditCefrGrammarStructures(strings: ExtractedString[]): CefrGrammarIssue[]`. Define per-language (pt/fr/en, keyed off the 2-letter base of `targetLanguage`) marker tables mapping a regex to a minimum CEFR level it implies, e.g. fr conditional endings /\\b\\w+rai[st]?\\b/ -> B1, fr subjunctive cues /\\bque je sois\\b|\\bqu'il (?:fasse|soit)\\b/ -> B1; pt future-subjunctive/conditional /\\b\\w+ria[ms]?\\b/ -> B1, pt 'tivesse|f\u00f4ssemos' -> B2; en conditional-perfect /\\bwould have\\b|\\bif i were\\b/ -> B1, present-perfect /\\bhave (?:been|done|gone)\\b/ -> A2+. Only audit strings whose role is 'teaching-input' or 'instruction' with a known cefrLevel. Map levels to ordinals (A1=1..C2=6); flag when a marker's implied level ordinal > declared level ordinal. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/cefr-grammar-structure-audit.spec.ts with hermetic inline fixtures: (1) A1 fr string containing a conditional like 'je voudrais' -> flagged; (2) A1 fr string of simple present 'je veux un caf\u00e9' -> NOT flagged; (3) B1 fr string with conditional -> NOT flagged; (4) A1 en string 'I would have liked' -> flagged; (5) cefrLevel null -> NOT flagged. Be conservative \u2014 avoid false positives on simple present/imperative. Do NOT finish until `npx vitest run test/qa/detectors/cefr-grammar-structure-audit.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "terminology-accent-collision",
+      "title": "Terminology consistency: flag accent/case-variant spellings of the same term across content",
+      "worker_model": "claude",
+      "commit": "feat(qa): detect inconsistent accent/case spellings of the same term",
+      "allowed_files": [
+        "scripts/qa/detectors/terminology-accent-collision.ts",
+        "test/qa/detectors/terminology-accent-collision.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/terminology-accent-collision.spec.ts",
+      "spec": "Build a DETERMINISTIC terminology-consistency detector (no LLM, no network) for the 'Farmaceutica/Farmac\u00eautica' class of bug: the same word/term appearing with inconsistent diacritics or casing across the content. Create scripts/qa/detectors/terminology-accent-collision.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface TerminologyCollision { normalized: string; targetLanguage: string; variants: { surface: string; stringId: string; filePath: string; jsonPath: string; }[]; }` and a pure function `detectTerminologyCollisions(strings: ExtractedString[]): TerminologyCollision[]`. Extract candidate TERMS (not whole sentences): split each string's text into word tokens, keep tokens of length >= 4 that contain a letter, strip surrounding punctuation. Build a normalization key = NFD-decompose, strip combining diacritics (\\u0300-\\u036f), lowercase. Group token occurrences by (targetLanguage base, normalized key). A collision = a group whose occurrences include >= 2 DISTINCT surface forms (so 'Farmaceutica' + 'Farmac\u00eautica', or 'Bonjour'+'bonjour' at term start mid-sentence is excluded \u2014 only flag when forms differ by diacritics OR by internal casing, NOT merely sentence-initial capitalization). To avoid sentence-initial-cap noise, when comparing casing only flag if the two surfaces differ after lowercasing-the-first-letter still differ OR differ in diacritics. Return collisions sorted by normalized key, each with its distinct variants (dedupe identical surfaces, keep first occurrence's location). Write test/qa/detectors/terminology-accent-collision.spec.ts with hermetic inline ExtractedString[] fixtures: (1) two strings using 'Farmac\u00eautica' and 'Farmaceutica' (same targetLanguage) -> one collision with both variants; (2) the same term spelled identically everywhere -> no collision; (3) the SAME word once sentence-initial 'Bonjour' and once mid-sentence 'bonjour' -> NOT a collision (sentence-initial cap ignored); (4) accent variants in DIFFERENT targetLanguages -> NOT grouped together. Do NOT finish until `npx vitest run test/qa/detectors/terminology-accent-collision.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "npc-translation-leak",
+      "title": "NPC QA: flag parenthetical translations / bracketed stage-directions / TODO leaking into NPC speech",
+      "worker_model": "codex",
+      "commit": "feat(qa): detect translation/stage-direction leaks in NPC teaching lines",
+      "allowed_files": [
+        "scripts/qa/detectors/npc-translation-leak.ts",
+        "test/qa/detectors/npc-translation-leak.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/npc-translation-leak.spec.ts",
+      "spec": "Build a DETERMINISTIC NPC-content QA detector (no LLM, no network): NPC teaching lines must be pure target-language speech, with no inline English gloss, no bracketed stage direction, no authoring placeholder. Create scripts/qa/detectors/npc-translation-leak.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface NpcLeakIssue { stringId: string; filePath: string; jsonPath: string; npcId: string | null; text: string; leakKind: 'parenthetical-gloss' | 'bracketed-direction' | 'authoring-placeholder' | 'language-tag-prefix'; match: string; }` and a pure function `detectNpcTranslationLeaks(strings: ExtractedString[]): NpcLeakIssue[]`. Only evaluate strings with role 'teaching-input' (NPC speech: fallbackLines/barks/invitePhrase/etc.). Detect: (a) parenthetical gloss \u2014 a '(...)' span whose inner text is mostly ASCII Latin words (heuristic gloss) -> 'parenthetical-gloss'; (b) square-bracket span '[...]' or '<...>' -> 'bracketed-direction'; (c) authoring placeholders TODO|FIXME|XXX|TBD|PLACEHOLDER|lorem ipsum (case-insensitive) -> 'authoring-placeholder'; (d) a leading language-tag prefix like 'EN:'|'PT:'|'FR:'|'translation:' -> 'language-tag-prefix'. Emit one issue per distinct leak found (first match per kind per string), with the matched substring in `match`. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/npc-translation-leak.spec.ts with hermetic inline fixtures: (1) teaching-input 'Bonjour ! (hello there)' -> parenthetical-gloss; (2) teaching-input 'Bonjour ! [waves]' -> bracketed-direction; (3) teaching-input 'TODO write greeting' -> authoring-placeholder; (4) teaching-input 'EN: Hello' -> language-tag-prefix; (5) clean teaching-input 'Bonjour, que puis-je faire pour vous ?' -> NO issue; (6) a non-teaching 'instruction' role string with a '(note)' -> NOT flagged (only teaching-input audited). Do NOT finish until `npx vitest run test/qa/detectors/npc-translation-leak.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "oral-task-variant-coverage",
+      "title": "Oral-activity QA: flag answer-gating nodes with too few acceptableVariants or empty feedback (unfair rejection)",
+      "worker_model": "codex",
+      "commit": "feat(qa): audit oral-task acceptableVariants coverage and feedback presence",
+      "allowed_files": [
+        "scripts/qa/detectors/oral-task-variant-coverage.ts",
+        "test/qa/detectors/oral-task-variant-coverage.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/oral-task-variant-coverage.spec.ts",
+      "spec": "Build a DETERMINISTIC oral-activity QA detector (no LLM, no network) that guards against UNFAIR REJECTION: an answer-gating node that has an expected/required answer but too few accepted variants, or success/retry feedback missing. This is DISTINCT from existing oraltask detectors (which check prompts/edges/deadends) \u2014 here we only audit acceptableVariants count and feedback presence. Create scripts/qa/detectors/oral-task-variant-coverage.ts. It operates on a parsed project manifest object (read shape-first, do not import Babylon). Walk `teacherActivities[].oralTaskGraph` (and/or `oralTaskGraph` / a top-level graph object \u2014 be tolerant: search for any object with a `nodes` array) and inspect each node. A node is 'answer-gating' if it carries any of: `acceptableVariants`, `acceptableAlternatives`, `requiredForms`, or `expectedAnswer`. Export `interface VariantCoverageIssue { graphId: string | null; nodeId: string | null; kind: 'too-few-variants' | 'empty-variant' | 'missing-feedback'; detail: string; }` and a pure function `auditOralTaskVariantCoverage(project: unknown): VariantCoverageIssue[]`. Rules: (1) 'too-few-variants' when an answer-gating node has fewer than 2 non-empty entries across its acceptableVariants/acceptableAlternatives arrays (a single accepted phrasing is a fairness risk); (2) 'empty-variant' when any variant entry is an empty/whitespace-only string; (3) 'missing-feedback' when an answer-gating node has neither a success nor a retry/feedback `message`/`feedback`/`expectedHint` string present. Be null-safe everywhere. Return issues in stable order (graph order, node order, then rule). Write test/qa/detectors/oral-task-variant-coverage.spec.ts with a hermetic inline project object: (1) a node with one acceptableVariant -> 'too-few-variants'; (2) a node with ['Oui', ''] -> 'empty-variant'; (3) a node with 2 good variants but no feedback/message/hint -> 'missing-feedback'; (4) a healthy node with 2 variants + a feedback message -> NO issue; (5) a non-gating navigation node (no answer fields) -> NO issue. Do NOT finish until `npx vitest run test/qa/detectors/oral-task-variant-coverage.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "mojibake-encoding-detector",
+      "title": "Encoding QA: flag mojibake / double-encoded UTF-8 sequences in learner-facing strings",
+      "worker_model": "dumont",
+      "commit": "feat(qa): detect mojibake and replacement chars in learner strings",
+      "allowed_files": [
+        "scripts/qa/detectors/mojibake-encoding-detector.ts",
+        "test/qa/detectors/mojibake-encoding-detector.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/mojibake-encoding-detector.spec.ts",
+      "spec": "Build a SIMPLE DETERMINISTIC detector (no LLM, no network) for encoding corruption in accented PT/FR text \u2014 the classic double-encoded UTF-8 'mojibake' (e.g. '\u00c3\u00a9' for '\u00e9', '\u00c3\u00a3' for '\u00e3', '\u00e2\u20ac\u2122' for a curly apostrophe) and the U+FFFD replacement character. Create scripts/qa/detectors/mojibake-encoding-detector.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface MojibakeIssue { stringId: string; filePath: string; jsonPath: string; text: string; match: string; }` and a pure function `detectMojibake(strings: ExtractedString[]): MojibakeIssue[]`. Flag any string whose text matches a mojibake pattern: the replacement char \\uFFFD; common double-encoding sequences /\u00c3[\\u0080-\\u00bf\u00a9\u00a3\u00a2\u00a1\u00ab\u00bb]/, /\u00c2[\\u00a0-\\u00bf]/, /\u00e2\u20ac(?:\u2122|\u0153|\\u009d|\\u0093|\\u0094)/, /\u00c3\\u0083/. Emit at most one issue per string (first match), with the matched substring in `match`. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/mojibake-encoding-detector.spec.ts with hermetic inline ExtractedString[] fixtures: (1) text 'Caf\u00c3\u00a9' -> flagged; (2) text 'Pad\u00c3\u00a3o' -> flagged; (3) text containing U+FFFD -> flagged; (4) correctly-encoded 'Caf\u00e9 au lait' -> NOT flagged; (5) plain ascii 'Hello there' -> NOT flagged. Do NOT finish until `npx vitest run test/qa/detectors/mojibake-encoding-detector.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "placeholder-untranslated-detector",
+      "title": "Content QA: flag leftover placeholders / untranslated template tokens in learner strings",
+      "worker_model": "dumont",
+      "commit": "feat(qa): detect leftover placeholders and template tokens in content",
+      "allowed_files": [
+        "scripts/qa/detectors/placeholder-untranslated-detector.ts",
+        "test/qa/detectors/placeholder-untranslated-detector.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/detectors/placeholder-untranslated-detector.spec.ts",
+      "spec": "Build a SIMPLE DETERMINISTIC detector (no LLM, no network) for unfinished content: leftover authoring placeholders and un-substituted template tokens that reached learner-facing strings. Create scripts/qa/detectors/placeholder-untranslated-detector.ts. Import `import type { ExtractedString } from \"../linguistic-review/types.js\"`. Export `interface PlaceholderIssue { stringId: string; filePath: string; jsonPath: string; text: string; kind: 'template-token' | 'format-specifier' | 'authoring-marker' | 'lorem-ipsum'; match: string; }` and a pure function `detectPlaceholders(strings: ExtractedString[]): PlaceholderIssue[]`. Detect: (a) template tokens /\\{\\{?\\s*[a-zA-Z0-9_.]+\\s*\\}?\\}/ or /\\$\\{[^}]+\\}/ -> 'template-token'; (b) printf-style /%[sdif]\\b/ -> 'format-specifier'; (c) authoring markers TODO|FIXME|XXX|TBD|PLACEHOLDER|<insert[^>]*> (case-insensitive) -> 'authoring-marker'; (d) 'lorem ipsum' (case-insensitive) -> 'lorem-ipsum'. Emit one issue per distinct kind found per string (first match), with the matched substring in `match`. Return issues sorted by filePath then jsonPath. Write test/qa/detectors/placeholder-untranslated-detector.spec.ts with hermetic inline fixtures: (1) 'Bonjour {name}' -> template-token; (2) 'Vous avez %d messages' -> format-specifier; (3) 'TODO traduire' -> authoring-marker; (4) 'Lorem ipsum dolor' -> lorem-ipsum; (5) clean 'Bonjour, comment allez-vous ?' -> NO issue. Do NOT finish until `npx vitest run test/qa/detectors/placeholder-untranslated-detector.spec.ts` passes. Touch only the two allowed files.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    }
+  ]
+}
