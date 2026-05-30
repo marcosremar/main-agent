@@ -21,8 +21,11 @@ def claude_credentials_b64() -> str:
     keychain, which the Mac keeps refreshed)."""
     raw = _run(["security", "find-generic-password", "-s",
                 "Claude Code-credentials", "-w"])
+    raw = raw.strip()
     try:
         d = json.loads(raw)
+        if isinstance(d, list):
+            d = d[0] if d else {}
         o = d.get("claudeAiOauth")
         if isinstance(o, dict):
             o.pop("refreshToken", None)
@@ -40,7 +43,16 @@ def opencode_auth_b64(path="~/.local/share/opencode/auth.json") -> str:
         print(f"WARN opencode_auth_b64: {p} not found — opencode lane will be unavailable", flush=True)
         return ""
     with open(p, "rb") as f:
-        return base64.b64encode(f.read()).decode()
+        content = f.read()
+    try:
+        decoded = base64.b64decode(content).decode("utf-8").strip()
+        if not decoded:
+            print(f"WARN opencode_auth_b64: {p} decoded to empty — opencode lane will be unavailable", flush=True)
+            return ""
+    except Exception as e:
+        print(f"WARN opencode_auth_b64: could not decode {p} ({e}) — opencode lane will be unavailable", flush=True)
+        return ""
+    return content
 
 
 def dumont_config_b64(path="~/.dumont/dumont.json") -> str:
@@ -54,7 +66,7 @@ def dumont_config_b64(path="~/.dumont/dumont.json") -> str:
 
 
 def gh_token() -> str:
-    return _run(["gh", "auth", "token"]).strip()
+    return subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True, stderr=subprocess.DEVNULL).stdout.strip()
 
 
 def claude_oat_token(path="~/.claude-oat-token") -> str:
@@ -88,14 +100,15 @@ def codex_config_b64() -> str:
     return _file_b64("~/.codex/config.toml")
 
 
-def minimax_key(env_file="/Users/marcos/projects/ai-gateway/.env") -> str:
+def minimax_key(env_file="~/projects/ai-gateway/.env") -> str:
     """MiniMax API key for dumont (referenced as $MINIMAX_API_KEY in dumont.json)."""
     import os
     k = os.environ.get("MINIMAX_API_KEY")
     if k:
         return k
+    p = os.path.expanduser(env_file)
     try:
-        for line in open(env_file):
+        for line in open(p):
             if line.startswith("MINIMAX_API_KEY="):
                 return line.split("=", 1)[1].strip()
     except FileNotFoundError:
@@ -126,9 +139,10 @@ def inject_into_sandbox(dt, sid: str, gh: str):
     oat = claude_oat_token()
     if oat:
         # env token is authoritative -> drop the stale keychain credentials.json so claude
-        # can't fall back to the dead short-lived token.
+        # can't fall back to the dead short-lived token. Replace existing OAT line instead of
+        # accumulating duplicates when token is rotated between batches.
         dt.exec(sid, f"rm -f ~/.claude/.credentials.json; "
-                     f"grep -q CLAUDE_CODE_OAUTH_TOKEN ~/.profile 2>/dev/null || "
+                     f"sed -i '/^export CLAUDE_CODE_OAUTH_TOKEN=/d' ~/.profile; "
                      f"echo 'export CLAUDE_CODE_OAUTH_TOKEN={oat}' >> ~/.profile; echo oat-set", timeout=30)
     # codex (gpt-5.3-codex-spark worker): ChatGPT auth + config (model pin), if present locally
     ca, cc2 = codex_auth_b64(), codex_config_b64()

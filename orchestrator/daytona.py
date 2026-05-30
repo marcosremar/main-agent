@@ -49,8 +49,20 @@ class Daytona:
         raise last
 
     # --- lifecycle ---
-    def list(self):
-        return self._req("GET", "/sandbox").get("items", [])
+    def list(self, limit=50):
+        """Iterate all pages; Daytona returns at most `limit` items per request."""
+        items, cursor = [], None
+        while True:
+            path = f"/sandbox?limit={limit}" + (f"&after={cursor}" if cursor else "")
+            page = self._req("GET", path).get("items", [])
+            items.extend(page)
+            # Daytona uses `nextCursor` or `cursor` in the response envelope
+            cursor = (
+                page[-1]["id"] if len(page) == limit else None
+            )
+            if not cursor:
+                break
+        return items
 
     def create(self, auto_stop=30, snapshot=None, labels=None):
         # resources (cpu/mem/DISK) are fixed by the snapshot, not settable per-sandbox. The
@@ -69,8 +81,8 @@ class Daytona:
         so disk/quota isn't held. The golden SNAPSHOT template is separate and unaffected."""
         try:
             self._req("POST", f"/sandbox/{sid}/autodelete/{minutes}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"WARN set_autodelete {sid[:8]}: {e}", flush=True)
 
     def set_autostop(self, sid: str, minutes: int):
         """Idle minutes before Daytona auto-stops the sandbox (stopped = $0, disk kept,
@@ -89,8 +101,6 @@ class Daytona:
         return self.get(sid).get("state")
 
     def start(self, sid: str):
-        if self.state(sid) == "started":
-            return
         try:
             self._req("POST", f"/sandbox/{sid}/start")
         except RuntimeError as e:
@@ -111,7 +121,11 @@ class Daytona:
     def backup(self, sid: str, timeout=300):
         self._req("POST", f"/sandbox/{sid}/backup")
         t0 = time.time()
-        while self.get(sid).get("backupState") not in ("Completed", "None"):
+        done = {"Completed", "None"}
+        error = {"Failed", "Error"}
+        while self.get(sid).get("backupState") not in done:
+            if self.get(sid).get("backupState") in error:
+                raise RuntimeError(f"backup {sid[:8]} entered error state")
             if time.time() - t0 > timeout:
                 raise TimeoutError(f"backup {sid[:8]} not completed after {timeout}s")
             time.sleep(3)
@@ -127,9 +141,14 @@ class Daytona:
             return True  # transient — assume alive, caller will find out
 
     def reap_strays(self, keep: list):
-        """Delete sandboxes not in `keep` — stops cost + clutter from prior runs."""
+        """Delete sandboxes not in `keep` AND not tagged with our orchestrator labels.
+        Only deletes sandboxes that belong to this project to avoid collateral damage."""
         keepset = set(keep)
         for x in self.list():
+            # Only delete sandboxes we own (tagged project=babylon-cinema)
+            labels = x.get("labels", {})
+            if labels.get("project") != "babylon-cinema":
+                continue
             if x["id"] not in keepset:
                 try:
                     self.delete(x["id"])
@@ -171,8 +190,14 @@ class Daytona:
         """Launch a long command in the background; poll with exec_wait().
 
         A completion sentinel is appended to the log so exec_wait() detects "done" by the
-        log marker, not by pgrep (which races: the process may not have spawned yet)."""
-        wrapped = f"{command}; echo {self.SENTINEL}"
+        log marker, not by pgrep (which races: the process may not have spawned yet).
+        Uses ERR trap to guarantee sentinel is written even if command calls exit."""
+        wrapped = (
+            f"set -e; "
+            f"trap 'echo {self.SENTINEL} >>{logfile}' ERR; "
+            f"{command}; "
+            f"echo {self.SENTINEL} >>{logfile}"
+        )
         self.exec(sid, f"nohup bash -lc {json.dumps(wrapped)} >{logfile} 2>&1 & echo started", timeout=30)
 
     def kill(self, sid: str, match: str):

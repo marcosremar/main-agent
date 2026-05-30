@@ -1,0 +1,22 @@
+[03:13:16] pool sandbox ready 0674e927
+[03:13:22] pool sandbox ready 3543c00d
+[03:13:27] pool sandbox ready 40d398ef
+[03:13:31] pool sandbox ready a2d073a3
+[03:13:37] pool sandbox ready e72c3d30
+[03:13:42] pool sandbox ready e5de56e3
+[03:13:47] pool sandbox ready ac95330a
+[03:13:52] pool sandbox ready f02e5b06
+[03:13:52] lanes: [('claude', 15), ('dumont', 15), ('codex', 15)] | pool=8 | effective=4
+[03:13:52] [platform-unification] worktree agent/platform-unification from integration/platform-city-unify
+[03:13:52] [ambient-raf-guard] worktree agent/ambient-raf-guard from integration/platform-city-unify
+[03:13:52] [admin-dynamic-minicities] worktree agent/admin-dynamic-minicities from integration/platform-city-unify
+[03:13:52] [rn-city-bake-pipeline] worktree agent/rn-city-bake-pipeline from integration/platform-city-unify
+[03:13:54] [platform-unification] iter 1/12 worker=claude
+[03:13:54] [admin-dynamic-minicities] iter 1/12 worker=codex
+[03:13:54] [ambient-raf-guard] iter 1/10 worker=dumont
+[03:13:54] [rn-city-bake-pipeline] iter 1/14 worker=codex
+[03:16:05] [rn-city-bake-pipeline] verify FAIL iter 1
+[03:16:05] [rn-city-bake-pipeline] iter 2/14 worker=codex
+[03:16:58] [platform-unification] verify FAIL iter 1
+[03:16:58] [platform-unification] iter 2/12 worker=claude
+[03:18:04] [ambient-raf-guard] verify PASS on iter 1

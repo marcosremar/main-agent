@@ -5,14 +5,10 @@
   "global_deadline_s": 7200,
   "idle_autostop_min": 1,
   "pool_sids": [
-    "0674e927-5ed1-416c-afc6-261db22f22c0",
-    "3543c00d-4bfa-4ef1-80b8-39cd5ea01aae",
-    "40d398ef-d3f6-4384-aae7-5385ef156ac7",
-    "a2d073a3-5257-46af-b265-dc67523233ce",
-    "e72c3d30-475d-4917-a1a2-5dfbc011dc6c",
-    "e5de56e3-fbc4-46b5-a6b2-f9d9673d36d9",
-    "ac95330a-e16f-430b-b691-86662ab2dc76",
-    "f02e5b06-966f-4a91-9ab9-478fb716ed40"
+    "9411f979-d0ea-4439-a10f-660063bbcfde",
+    "fe60b6b9-60e0-42fb-bfd7-46c28b2dc9c6",
+    "6be953c7-20bb-4d04-aba4-a1056d971dd9",
+    "afb39b5e-fae6-4c0e-b5d5-dae928e9122c"
   ],
   "objective": "Platform & City Unification \u2014 one JS city codebase, no platform leaks (web + React Native)",
   "planner": "hand",
@@ -98,5 +94,6 @@
         "src/modules"
       ]
     }
-  ]
+  ],
+  "copy_autodelete_min": 5
 }

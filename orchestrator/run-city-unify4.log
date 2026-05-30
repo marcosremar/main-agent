@@ -1,0 +1,27 @@
+[04:09:53] [ambient-raf-guard] already done — skip (resume)
+[04:10:00] pool sandbox ready 0674e927
+[04:10:03] pool sandbox ready 3543c00d
+[04:10:04] WARN pool sandbox 40d398ef unavailable: POST /sandbox/40d398ef-d3f6-4384-aae7-5385ef156ac7/start -> HTTP 400: {"path":"/api/sandbox/40d398ef-d3f6-4384-aae7-5385ef156ac7/start","timestamp":"2026-05-30T02:10:04.609Z","statusCode":400,"error":"Bad Request","message":"Sandbox is in an errored state"}
+[heal] sid c716ee3f-430a-41f8-87f6-ead55693fc24
+[04:11:19] provisioned fresh sandbox c716ee3f
+[04:11:19] pool sandbox 40d398ef replaced by fresh c716ee3f
+[04:11:25] pool sandbox ready a2d073a3
+[04:11:30] pool sandbox ready e72c3d30
+[04:11:36] pool sandbox ready e5de56e3
+[04:11:41] pool sandbox ready ac95330a
+[04:11:46] pool sandbox ready f02e5b06
+[04:11:46] lanes: [('claude', 15), ('codex', 15)] | pool=8 | effective=3
+[04:11:47] [admin-dynamic-minicities] worktree agent/admin-dynamic-minicities from integration/platform-city-unify
+[04:11:49] [admin-dynamic-minicities] iter 1/12 worker=codex
+[04:11:49] [platform-unification] worktree agent/platform-unification from integration/platform-city-unify
+[04:11:50] [rn-city-bake-pipeline] worktree agent/rn-city-bake-pipeline from integration/platform-city-unify
+[04:11:51] [platform-unification] iter 1/12 worker=claude
+[04:11:52] [rn-city-bake-pipeline] iter 1/14 worker=codex
+[04:14:34] [platform-unification] worker HUNG iter 1: 'claude -p' stalled 150s (no log output) — killed
+[04:14:34] [platform-unification] iter 2/12 worker=claude
+[04:16:12] [admin-dynamic-minicities] verify FAIL iter 1
+[04:16:12] [admin-dynamic-minicities] iter 2/12 worker=codex
+[04:17:07] [platform-unification] worker HUNG iter 2: 'claude -p' stalled 150s (no log output) — killed
+[04:17:07] [platform-unification] iter 3/12 worker=claude
+[04:18:03] [rn-city-bake-pipeline] verify FAIL iter 1
+[04:18:03] [rn-city-bake-pipeline] iter 2/14 worker=codex

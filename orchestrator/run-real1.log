@@ -1,0 +1,36 @@
+[02:53:33] pool sandbox ready 0674e927
+[02:53:38] pool sandbox ready 3543c00d
+[02:53:42] pool sandbox ready 40d398ef
+[02:53:47] pool sandbox ready a2d073a3
+[02:53:52] pool sandbox ready e72c3d30
+[02:53:57] pool sandbox ready e5de56e3
+[02:54:02] pool sandbox ready ac95330a
+[02:54:06] pool sandbox ready f02e5b06
+[02:54:06] lanes: [('claude', 15), ('codex', 15), ('dumont', 15)] | pool=8 | effective=8
+[02:54:07] [oral-task-variant-coverage] worktree agent/oral-task-variant-coverage from integration/agent-pipeline-test
+[02:54:07] [mojibake-encoding-detector] worktree agent/mojibake-encoding-detector from integration/agent-pipeline-test
+[02:54:07] [content-wrong-language] worktree agent/content-wrong-language from integration/agent-pipeline-test
+[02:54:07] [cefr-lexical-complexity-audit] worktree agent/cefr-lexical-complexity-audit from integration/agent-pipeline-test
+[02:54:07] [placeholder-untranslated-detector] worktree agent/placeholder-untranslated-detector from integration/agent-pipeline-test
+[02:54:07] [terminology-accent-collision] worktree agent/terminology-accent-collision from integration/agent-pipeline-test
+[02:54:07] [npc-translation-leak] worktree agent/npc-translation-leak from integration/agent-pipeline-test
+[02:54:07] [cefr-grammar-structure-audit] worktree agent/cefr-grammar-structure-audit from integration/agent-pipeline-test
+[02:54:09] [placeholder-untranslated-detector] iter 1/12 worker=dumont
+[02:54:09] [content-wrong-language] iter 1/12 worker=claude
+[02:54:09] [oral-task-variant-coverage] iter 1/12 worker=codex
+[02:54:09] [terminology-accent-collision] iter 1/12 worker=claude
+[02:54:09] [cefr-grammar-structure-audit] iter 1/12 worker=claude
+[02:54:09] [npc-translation-leak] iter 1/12 worker=codex
+[02:54:09] [cefr-lexical-complexity-audit] iter 1/12 worker=codex
+[02:54:09] [mojibake-encoding-detector] iter 1/12 worker=dumont
+[02:56:54] [oral-task-variant-coverage] verify PASS on iter 1
+[02:57:46] [placeholder-untranslated-detector] verify PASS on iter 1
+[02:58:08] [npc-translation-leak] verify PASS on iter 1
+[02:58:10] [content-wrong-language] verify PASS on iter 1
+[03:00:38] [terminology-accent-collision] verify PASS on iter 1
+[03:02:11] [cefr-grammar-structure-audit] worker HUNG iter 1: 'claude -p' exceeded 480s — killed
+[03:02:11] [cefr-grammar-structure-audit] iter 2/12 worker=claude
+[03:03:10] [cefr-lexical-complexity-audit] ERROR 'claude -p' exceeded 480s — killed
+[03:07:33] [mojibake-encoding-detector] ERROR 'claude -p' exceeded 480s — killed
+[03:10:22] [cefr-grammar-structure-audit] worker HUNG iter 2: 'claude -p' exceeded 480s — killed
+[03:10:22] [cefr-grammar-structure-audit] iter 3/12 worker=claude

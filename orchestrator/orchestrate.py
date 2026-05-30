@@ -12,11 +12,13 @@ Usage:
   python3 orchestrate.py config.json
 """
 import base64
+import fcntl
 import json
 import os
 import signal as _signal
 import sys
 import time
+import tempfile
 
 # load orchestrator/.env (KEY=VALUE lines) so model/lane settings live in one place
 _envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -89,8 +91,10 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
 
 
 def cleanup_worktree(dt, sid, wt, branch):
+    # always remove worktree FIRST (branch -D fails if checked-out in another worktree)
+    # then force-delete the branch; use -f as fallback if branch is still checked-out elsewhere
     dt.exec(sid, f"cd ~/babylon-cinema && git worktree remove --force {wt} 2>/dev/null; "
-                 f"git branch -D {branch} 2>/dev/null; git worktree prune", timeout=60)
+                 f"git branch -D -f {branch} 2>/dev/null; git worktree prune", timeout=60)
 
 
 def verify(dt, sid, wt, verify_cmd):
@@ -211,10 +215,12 @@ def error_signature(out: str) -> str:
 def scope_ok(dt, sid, wt, allowed):
     # List changed paths as BARE paths (no status prefix) to avoid fragile column slicing of
     # `git status --porcelain` (which dropped a leading char and caused false OUT_OF_SCOPE):
-    #   - tracked modifications/staged: `git diff --name-only HEAD`
+    #   - tracked modifications:  `git diff --name-only HEAD`
+    #   - staged in index:        `git diff --cached --name-only`
     #   - brand-new untracked FILES (individually, not collapsed dirs): `git ls-files --others`
     _, out = dt.exec(sid,
-        f"cd {wt} && {{ git diff --name-only HEAD; git ls-files --others --exclude-standard; }} "
+        f"cd {wt} && {{ git diff --name-only HEAD; git diff --cached --name-only; "
+        f"git ls-files --others --exclude-standard; }} "
         f"| grep -v node_modules | sort -u", timeout=30)
     changed = [l.strip() for l in out.strip().splitlines() if l.strip()]
     # a changed path is in-scope if it equals an allowed entry, OR sits under an allowed
@@ -236,6 +242,10 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     branch = f"agent/{tid}"
     wt = f"/home/daytona/wt/{tid}"
     allowed = task["allowed_files"]
+    # clean up stale tmp artifacts from prior runs — they accumulate and waste disk
+    dt.exec(sid, "rm -f /tmp/spec-{tid}-*.txt /tmp/work-{tid}-*.log /tmp/verify-{tid}-*.txt "
+                "/tmp/spec-*.txt /tmp/work-*.log /tmp/verify-*.txt 2>/dev/null; "
+                "rm -rf /tmp/bundle-* /tmp/citygen-* 2>/dev/null; true", timeout=30)
     if not allowed:
         return {"id": tid, "status": "ERROR", "error": "allowed_files is empty — nothing to commit"}
     # worker_model is assigned PER TASK by the brain, by difficulty (Opus for hard,
@@ -253,11 +263,14 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # single-branch clone has a restricted fetch refspec, so the remote-tracking ref for
     # the integration branch won't exist — fetch it explicitly into refs/remotes/origin/.
     ib_ref = f"refs/remotes/origin/{integration_branch}"
+    # shallow fetch breaks on force-push ("shallow update not allowed"); use --unshallow
+    # to convert to full history, or fall back to depth=50 which handles most rebase scenarios
     _, wtout = dt.exec(sid,
         f"cd ~/babylon-cinema && git worktree remove --force {wt} 2>/dev/null; "
-        f"git branch -D {branch} 2>/dev/null; "
-        f"git fetch --depth 1 origin +refs/heads/{integration_branch}:{ib_ref} && "
-        f"git worktree add -b {branch} {wt} {ib_ref} && "
+        f"git branch -D -f {branch} 2>/dev/null; "
+        f"git fetch --unshallow origin refs/heads/{integration_branch} 2>/dev/null || "
+        f"git fetch --depth 50 origin refs/heads/{integration_branch}; "
+        f"git worktree add -b {branch} {wt} origin/{integration_branch} && "
         f"ln -sfn ~/babylon-cinema/node_modules {wt}/node_modules && echo WORKTREE_OK", timeout=120)
     if "WORKTREE_OK" not in wtout:
         return {"id": tid, "status": "WORKTREE_FAILED", "out": wtout[-400:]}
@@ -270,11 +283,14 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # include allowed_files' dirs (where the worker WRITES) plus task `sparse_extra` dirs
     # (modules the verify step IMPORTS at runtime, e.g. a script that imports src/modules/citygen
     # — those must be materialized too or the test fails to import them).
+    # Use cone mode (--cone) for predictable behaviour — non-cone mode has different semantics.
     sp_dirs = sorted({os.path.dirname(f) for f in allowed if os.path.dirname(f)}
                      | set(task.get("sparse_extra", [])))
     if sp_dirs:
         addlist = " ".join(json.dumps(d) for d in sp_dirs)
-        _, spout = dt.exec(sid, f"cd {wt} && git sparse-checkout add {addlist} && echo SPARSE_OK",
+        _, spout = dt.exec(sid,
+                           f"cd {wt} && git sparse-checkout init --cone && "
+                           f"git sparse-checkout add {addlist} && echo SPARSE_OK",
                            timeout=90)
         if "SPARSE_OK" not in spout:
             return {"id": tid, "status": "WORKTREE_FAILED", "out": "sparse add failed: " + spout[-300:]}
@@ -309,9 +325,12 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
         try:
             ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
         except TimeoutError as e:
-            # a hung verification stage (e.g. evidence_cmd / vision) is retryable, never fatal
             log(f"[{tid}] verify HUNG iter {i}: {e}")
             ok, out = False, f"verification timed out: {e}"
+        if time.time() - t_task > task_budget:
+            log(f"[{tid}] task budget {task_budget}s exceeded after verify — aborting")
+            cleanup_worktree(dt, sid, wt, branch)
+            return {"id": tid, "status": "TIMEOUT_BUDGET", "iters": i}
         if ok:
             log(f"[{tid}] verify PASS on iter {i}")
             passed = True
@@ -349,6 +368,16 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
                 log(f"[{tid}] WARN: lane semaphore mismatch on escalation — claude lane cap not enforced for this task")
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
                 "Fix it. The verification command output was:\n" + out[-4000:])
+        # cap spec at 60KB — truncate oldest feedback if it grows beyond that
+        MAX_SPEC = 60 * 1024
+        if len(spec.encode()) > MAX_SPEC:
+            # keep task spec header, drop oldest feedback entries from the tail
+            header = task["spec"] + "\n\n"
+            # gather feedback blocks (each starts with "VERIFIER FEEDBACK")
+            parts = spec[len(header):].split("VERIFIER FEEDBACK")
+            # keep newest 8 blocks (roughly 32KB of feedback + header = ~45KB)
+            kept = "VERIFIER FEEDBACK".join(parts[-8:])
+            spec = header + kept
     if not passed:
         cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters, "model": model,
@@ -357,6 +386,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # scope check
     sok, changed, extra = scope_ok(dt, sid, wt, allowed)
     if not sok:
+        cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "OUT_OF_SCOPE", "extra": extra, "changed": changed}
 
     # commit + push — stage ONLY the allowed files (surgical). `git add -A` is wrong here:
@@ -386,11 +416,16 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     pr_files = gh.pr_files(num)
     pr_extra = [f for f in pr_files if f not in allowed and not f.startswith("node_modules")]
     if pr_extra:
+        cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "PR_OUT_OF_SCOPE", "pr": num, "extra": pr_extra}
     # serialize merges — many parallel tasks merge into the SAME integration branch
     import contextlib
     with (merge_lock or contextlib.nullcontext()):
-        merged = gh.merge_pr(num, "squash")
+        try:
+            merged = gh.merge_pr(num, "squash")
+        except Exception as e:
+            gh.close_pr(num, f"Merged failed: {e}")
+            raise
     log(f"[{tid}] integration merged PR #{num}: {merged.get('merged')}")
 
     # cleanup worktree
@@ -415,13 +450,24 @@ def load_state(ib):
     os.makedirs(STATE_DIR, exist_ok=True)
     p = state_path(ib)
     if os.path.exists(p):
-        return json.load(open(p))
+        try:
+            return json.load(open(p))
+        except json.JSONDecodeError:
+            bak = p + f".bak-{int(time.time())}"
+            os.rename(p, bak)
+            log(f"state corrupted (JSONDecodeError) — backed up to {bak}, starting fresh")
+            return {}
     return {}
 
 
 def save_state(ib, state, lock):
     with lock:
-        json.dump(state, open(state_path(ib), "w"), indent=2)
+        import tempfile
+        p = state_path(ib)
+        tmp = p + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, p)
 
 
 def already_done(gh, ib, task, state):
@@ -484,9 +530,13 @@ def acquire_live(dt, free, ght, provision_fresh):
         # dead — drop it, try next
 
 
-def main():
-    import queue
-    import os
+def lane_key_func(model):
+    """Returns the lane key for a model string: claude, dumont, codex, minimax, or the
+    model string itself for unknown models."""
+    for k in ("claude", "codex", "dumont", "minimax"):
+        if str(model).startswith(k):
+            return k
+    return str(model)
     cfg = json.load(open(sys.argv[1]))
     # validate required fields up front — a missing key deep in the run produces confusing errors
     for _req_key in ("integration_branch", "tasks"):
@@ -515,11 +565,7 @@ def main():
     max_retry = cfg.get("task_retries", 3)       # retry a task on sandbox-death
     t_batch = time.time()
 
-    def lane_key(model):
-        for k in ("claude", "codex", "dumont", "minimax"):
-            if str(model).startswith(k):
-                return k
-        return str(model)
+    lane_key = lane_key_func
     # one semaphore per lane -> caps concurrency PER MODEL (e.g. <=15 codex at once, the
     # ChatGPT-safe max). With 3 lanes that's <=45 total; extra tasks queue and wait.
     lane_sems = {}

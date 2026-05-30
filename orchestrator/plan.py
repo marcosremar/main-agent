@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 REPO = "/Users/marcos/projects/babylon-cinema"
 BRAIN = "/Users/marcos/projects/babylon-cinema-brain"

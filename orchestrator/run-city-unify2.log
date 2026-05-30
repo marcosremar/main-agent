@@ -1,0 +1,53 @@
+[03:19:51] pool sandbox ready 0674e927
+[03:19:57] pool sandbox ready 3543c00d
+[03:19:58] WARN pool sandbox 40d398ef unavailable: cred injection failed: bash: line 1: /home/daytona/.claude/.credentials.json: No space left on device
+
+[03:20:01] pool sandbox ready a2d073a3
+[03:20:06] pool sandbox ready e72c3d30
+[03:20:12] pool sandbox ready e5de56e3
+[03:20:17] pool sandbox ready ac95330a
+[03:20:23] pool sandbox ready f02e5b06
+[03:20:23] lanes: [('claude', 15), ('dumont', 15), ('codex', 15)] | pool=7 | effective=4
+[03:20:23] [admin-dynamic-minicities] worktree agent/admin-dynamic-minicities from integration/platform-city-unify
+[03:20:23] [rn-city-bake-pipeline] worktree agent/rn-city-bake-pipeline from integration/platform-city-unify
+[03:20:23] [ambient-raf-guard] worktree agent/ambient-raf-guard from integration/platform-city-unify
+[03:20:23] [platform-unification] worktree agent/platform-unification from integration/platform-city-unify
+[03:20:24] [admin-dynamic-minicities] iter 1/12 worker=codex
+[03:20:24] [rn-city-bake-pipeline] iter 1/14 worker=codex
+[03:20:25] [platform-unification] iter 1/12 worker=claude
+[03:20:25] [ambient-raf-guard] iter 1/10 worker=dumont
+[03:22:20] [admin-dynamic-minicities] verify FAIL iter 1
+[03:22:20] [admin-dynamic-minicities] iter 2/12 worker=codex
+[03:23:49] [admin-dynamic-minicities] verify FAIL iter 2
+[03:23:49] [admin-dynamic-minicities] iter 3/12 worker=codex
+[03:28:11] [admin-dynamic-minicities] verify FAIL iter 3
+[03:28:11] [admin-dynamic-minicities] iter 4/12 worker=codex
+[03:28:53] [platform-unification] verify FAIL iter 1
+[03:28:53] [platform-unification] iter 2/12 worker=claude
+[03:31:38] [platform-unification] verify FAIL iter 2
+[03:31:38] [platform-unification] iter 3/12 worker=claude
+[03:33:30] [ambient-raf-guard] verify FAIL iter 1
+[03:33:30] [ambient-raf-guard] iter 2/10 worker=dumont
+[03:35:12] [admin-dynamic-minicities] verify PASS on iter 4
+[03:35:13] [admin-dynamic-minicities] commit + push
+[03:35:14] [admin-dynamic-minicities] ERROR POST /repos/marcosremar/babylon-cinema/pulls -> HTTP 422: {"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"head","code":"invalid"}],"documentation_url":"https://docs.github.com/rest/pulls/pulls#create-a-pull-request","status":"422"}
+[03:36:05] [ambient-raf-guard] verify PASS on iter 2
+[03:36:05] [ambient-raf-guard] commit + push
+[03:36:08] [ambient-raf-guard] PR #69 -> integration/platform-city-unify
+[03:36:11] [ambient-raf-guard] integration merged PR #69: True
+[03:37:57] [platform-unification] verify PASS on iter 3
+[03:37:57] [platform-unification] commit + push
+[03:37:58] [platform-unification] ERROR POST /repos/marcosremar/babylon-cinema/pulls -> HTTP 422: {"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"head","code":"invalid"}],"documentation_url":"https://docs.github.com/rest/pulls/pulls#create-a-pull-request","status":"422"}
+[03:39:42] [rn-city-bake-pipeline] verify FAIL iter 1
+[03:39:42] [rn-city-bake-pipeline] iter 2/14 worker=codex
+[03:48:17] [rn-city-bake-pipeline] verify FAIL iter 2
+[03:48:17] [rn-city-bake-pipeline] task budget 1500s exceeded — aborting
+[03:48:18] stopping all sandboxes (billing $0)
+
+==== RESULTS ====
+{"id": "admin-dynamic-minicities", "status": "ERROR", "error": "POST /repos/marcosremar/babylon-cinema/pulls -> HTTP 422: {\"message\":\"Validation Failed\",\"errors\":[{\"resource\":\"PullRequest\",\"field\":\"head\",\"code\":\"invalid\"}],\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#create-a-pull-request\",\"status\":\"422\"}"}
+{"id": "ambient-raf-guard", "status": "MERGED", "pr": 69, "iters": 2, "model": "dumont"}
+{"id": "platform-unification", "status": "ERROR", "error": "POST /repos/marcosremar/babylon-cinema/pulls -> HTTP 422: {\"message\":\"Validation Failed\",\"errors\":[{\"resource\":\"PullRequest\",\"field\":\"head\",\"code\":\"invalid\"}],\"documentation_url\":\"https://docs.github.com/rest/pulls/pulls#create-a-pull-request\",\"status\":\"422\"}"}
+{"id": "rn-city-bake-pipeline", "status": "TIMEOUT_BUDGET", "iters": 2}
+
+1/4 merged | fresh sandboxes provisioned: 0 | task retries: 0 | elapsed: 1721s

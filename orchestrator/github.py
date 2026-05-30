@@ -53,6 +53,9 @@ class GitHub:
         raise last
 
     def create_pr(self, head: str, base: str, title: str, body: str) -> dict:
+        existing = self.open_pr_for(head, base)
+        if existing:
+            return existing
         return self._req("POST", f"/repos/{self.repo}/pulls",
                          {"head": head, "base": base, "title": title, "body": body})
 
@@ -62,7 +65,9 @@ class GitHub:
                              {"merge_method": method})
         except RuntimeError as e:
             msg = str(e)
-            if "405" in msg or "not mergeable" in msg.lower() or "conflict" in msg.lower():
+            is_conflict = ("merge conflict" in msg.lower() or
+                           "refusing to allow a github app" in msg.lower())
+            if is_conflict:
                 raise RuntimeError(f"MERGE_CONFLICT PR#{number}: {msg}") from e
             raise
 

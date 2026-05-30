@@ -1,0 +1,32 @@
+[03:48:52] [ambient-raf-guard] already done — skip (resume)
+[03:49:00] pool sandbox ready 0674e927
+[03:49:06] pool sandbox ready 3543c00d
+[03:49:10] WARN pool sandbox 40d398ef unavailable: POST /sandbox/40d398ef-d3f6-4384-aae7-5385ef156ac7/start -> HTTP 400: {"path":"/api/sandbox/40d398ef-d3f6-4384-aae7-5385ef156ac7/start","timestamp":"2026-05-30T01:49:10.838Z","statusCode":400,"error":"Bad Request","message":"Sandbox failed to start: Error response from daemon: mkdir /var/lib/docker/overlay2/041d0d1b2e814b7148f3c8fbb14cfe7cab1096bac28d8311773605cdec81f
+[03:49:15] pool sandbox ready a2d073a3
+[03:49:20] pool sandbox ready e72c3d30
+[03:49:26] pool sandbox ready e5de56e3
+[03:49:30] pool sandbox ready ac95330a
+[03:49:35] pool sandbox ready f02e5b06
+[03:49:35] lanes: [('claude', 15), ('codex', 15)] | pool=7 | effective=3
+[03:49:35] [admin-dynamic-minicities] worktree agent/admin-dynamic-minicities from integration/platform-city-unify
+[03:49:35] [rn-city-bake-pipeline] worktree agent/rn-city-bake-pipeline from integration/platform-city-unify
+[03:49:35] [platform-unification] worktree agent/platform-unification from integration/platform-city-unify
+[03:49:37] [rn-city-bake-pipeline] iter 1/14 worker=codex
+[03:49:37] [admin-dynamic-minicities] iter 1/12 worker=codex
+[03:49:37] [platform-unification] iter 1/12 worker=claude
+[03:54:51] [rn-city-bake-pipeline] verify FAIL iter 1
+[03:54:51] [rn-city-bake-pipeline] iter 2/14 worker=codex
+[03:57:20] [rn-city-bake-pipeline] verify FAIL iter 2
+[03:57:20] [rn-city-bake-pipeline] iter 3/14 worker=codex
+[03:57:32] [rn-city-bake-pipeline] verify FAIL iter 3
+[03:57:32] [rn-city-bake-pipeline] iter 4/14 worker=codex
+[03:59:47] [platform-unification] worker HUNG iter 1: 'claude -p' exceeded 600s — killed
+[03:59:47] [platform-unification] iter 2/12 worker=claude
+[04:00:19] [admin-dynamic-minicities] verify FAIL iter 1
+[04:00:19] [admin-dynamic-minicities] iter 2/12 worker=codex
+[04:01:54] [rn-city-bake-pipeline] verify FAIL iter 4
+[04:01:54] [rn-city-bake-pipeline] iter 5/14 worker=codex
+[04:07:36] [rn-city-bake-pipeline] verify FAIL iter 5
+[04:07:36] [rn-city-bake-pipeline] iter 6/14 worker=codex
+[04:07:57] [admin-dynamic-minicities] verify FAIL iter 2
+[04:07:57] [admin-dynamic-minicities] iter 3/12 worker=codex
