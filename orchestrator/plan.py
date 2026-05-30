@@ -81,16 +81,55 @@ third each). The orchestrator runs at most 15 tasks PER LANE concurrently (45 to
 queues the rest, and each task is independently validated by Opus — so balanced lanes
 maximize throughput. Do NOT reuse any of these existing task ids: {avoid}
 
-Output ONLY a JSON array (no prose, no markdown fence) of objects with EXACTLY these keys:
+SIZING RULE (decompose to the right granularity — this is the biggest lever on success):
+- If a task would force the worker to DECIDE ARCHITECTURE or CHOOSE between files, it is too
+  COARSE — split it; coarse tasks cause cascading failures.
+- If it is >~5 trivial near-identical steps, it is too FINE — group them.
+- Target: the worker finishes in MINUTES and the verify command goes green on the 1st-2nd try.
+
+EVERY task's `spec` is the ONLY thing the worker sees (it runs in an ISOLATED worktree with NO
+shared memory), so it MUST be 100% self-contained and contain these SEVEN fields, in
+imperative/deterministic language (no "should/maybe" — every noun is a REAL repo symbol/path
+the worker confirms by reading, never guesses):
+  1. GOAL + WHY (one sentence) — anchors intent.
+  2. EXACT ALLOWED FILES (1-3) — must equal `allowed_files`.
+  3. CONCRETE ORDERED STEPS (imperative) — a bounded series of edits.
+  4. FROZEN ACCEPTANCE CRITERIA + the verify command — how the worker knows it is DONE.
+  5. EXPLICIT PROHIBITIONS — "do NOT touch X", plus the inherited rules (cd
+     /Users/marcos/projects/babylon-cinema first; read CLAUDE.md+AGENTS.md; NodeNext ESM
+     imports end in .js; comments=WHY only; surgical; no scope beyond allowed_files).
+  6. EMBEDDED CONTEXT — the real symbol/type/path names needed (not "see the docs").
+  7. FALLBACK — "if genuinely blocked, STOP and report exactly what is missing" (no guessing).
+
+MANDATORY TEST: every task MUST create or extend an automated test, and `verify_cmd` MUST run
+that test. A task with no test is invalid.
+
+VERIFIER LAYER (pick per task — the deterministic command is ALWAYS the first gate; Opus ALSO
+always validates every task):
+- Default (objective code): just `verify_cmd` (e.g. npx vitest run <spec>). No extra fields.
+- FUZZY semantic criteria a command can't judge (e.g. "feedback is pedagogically adequate",
+  "NPC reply stays in target language"): set "verifier":"llm" and a natural-language
+  "criteria" string the adversarial Opus verifier checks.
+- 3D / VISUAL / SPATIAL criteria (this engine is full of them — "the bakery looks like a
+  bakery", "no floating meshes", "city renders without gaps", camera framing): set
+  "verifier":"vision", an "evidence_cmd" that renders a PNG headlessly in the sandbox, an
+  "evidence_image" path to that PNG, and a "criteria" string describing what the image must
+  show. The vision model (Qwen2.5-VL) judges the screenshot. USE THIS WHENEVER the real
+  acceptance is something you'd confirm by LOOKING at a render — do not fake a visual check
+  with a brittle command.
+
+Output ONLY a JSON array (no prose, no markdown fence) of objects with these keys:
   "id": kebab-case unique id (not in the avoid list)
   "title": one line
   "worker_model": one of "dumont" (simple), "codex" (medium), "claude" (hard)
   "commit": "feat(...): ..." conventional commit line
   "allowed_files": array of the 1-3 file paths the task may create/edit
-  "verify_cmd": a shell command that proves success (e.g. npx vitest run <spec>)
-  "spec": a complete, self-contained instruction for the worker, including what to build,
-          the exact files, and that it MUST create a test and not finish until the verify
-          command passes.
+  "verify_cmd": shell command that proves success and RUNS THE TEST (e.g. npx vitest run <spec>)
+  "spec": the self-contained instruction containing the SEVEN fields above
+  "verifier": OPTIONAL — omit for default, or "llm" (fuzzy) or "vision" (3D/visual)
+  "criteria": REQUIRED when verifier is "llm" or "vision" — what must be true / what the image shows
+  "evidence_cmd": REQUIRED when verifier is "vision" — command that renders the PNG
+  "evidence_image": REQUIRED when verifier is "vision" — path to the rendered PNG
 Output the JSON array and nothing else."""
     # Have the agent WRITE the JSON to a file (avoids stdout escaping/truncation issues
     # with spec strings full of backslashes/quotes). Read+parse the file, tolerant of
@@ -124,9 +163,17 @@ Output the JSON array and nothing else."""
             continue
         if not all(k in t for k in ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")):
             continue
+        # keep verifier config only if coherent, else fall back to the deterministic gate
+        # (which still gets the always-on Opus validation downstream).
+        v = t.get("verifier")
+        if v == "vision" and not (t.get("criteria") and t.get("evidence_cmd") and t.get("evidence_image")):
+            t.pop("verifier", None)
+        elif v == "llm" and not t.get("criteria"):
+            t.pop("verifier", None)
         t.setdefault("max_iters", 12)
         t.setdefault("no_progress_limit", 5)
-        t.setdefault("worker_timeout_s", 480)
+        t.setdefault("worker_timeout_s", 600)
+        t.setdefault("validate_timeout_s", 720)
         clean.append(t)
     return clean
 

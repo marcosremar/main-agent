@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,9 @@ def collect():
         ib = cfg.get("integration_branch", "?")
         plan = cfg.get("objective") or os.path.basename(cf)
         planner = cfg.get("planner", "hand")
+        # creation date: explicit per-task `created`, else the config file's mtime (when the
+        # batch was written) — both ISO yyyy-mm-dd for display.
+        cfg_date = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(cf)))
         for t in cfg.get("tasks", []):
             commit = t.get("commit", "")
             desc = t.get("title") or re.sub(r'^\w+(\([^)]*\))?:\s*', '', commit) or t["id"]
@@ -35,6 +39,7 @@ def collect():
                 "verify": t.get("verify_cmd", ""), "files": t.get("allowed_files", []),
                 "commit": commit, "spec": t.get("spec", ""),
                 "config": os.path.basename(cf), "plan": plan, "planner": planner,
+                "created": (t.get("created") or cfg_date)[:10],
             }
             branches[t["id"]] = ib
     state = {}
@@ -44,11 +49,18 @@ def collect():
                 state[tid] = r
         except Exception:
             pass
+    # OUT_OF_SCOPE / PR_OUT_OF_SCOPE were a scope-check bug (git status dir-collapse), not a
+    # real failure — treat such a record as if the task never ran (PENDING) so the artifact
+    # disappears from the board instead of showing a phantom failure.
+    BUG_STATUSES = {"OUT_OF_SCOPE", "PR_OUT_OF_SCOPE"}
     rows = []
     for tid, d in tasks.items():
         st = state.get(tid, {})
+        status = st.get("status", "PENDING")
+        if status in BUG_STATUSES:
+            st, status = {}, "PENDING"
         rows.append({**d, "branch": branches.get(tid, "?"),
-                     "status": st.get("status", "PENDING"),
+                     "status": status,
                      "pr": st.get("pr"), "iters": st.get("iters"),
                      "ran_model": st.get("model", ""), "error": st.get("error", "")})
     order = {"MERGED": 0, "RUNNING": 1, "PENDING": 2, "FAILED_MAX_ITERS": 3,
@@ -72,13 +84,24 @@ PAGE = r"""<!doctype html><html lang=pt><head><meta charset=utf-8>
   </div>
   <div id="sum" class="flex gap-2 flex-wrap mt-2 text-xs"></div>
   <div id="filters" class="flex gap-2 mt-2 text-xs"></div>
+  <div id="sorts" class="flex gap-2 mt-2 text-xs items-center"></div>
 </header>
 <main id="main" class="p-6 space-y-6 max-w-6xl mx-auto"></main>
 <script>
 const REPO="https://github.com/marcosremar/babylon-cinema";
 const opened=new Set();
 let mode='active';   // 'active' (not merged) | 'done' | 'all' — default focuses on remaining work
+let sort='status';   // 'status' | 'date-asc' | 'date-desc' | 'az' | 'za'
 function setMode(m){mode=m;load();}
+function setSort(s){sort=s;load();}
+const STORD={MERGED:0,RUNNING:1,PENDING:2,FAILED_MAX_ITERS:3,STUCK_NO_PROGRESS:3,TIMEOUT_BUDGET:4,WORKTREE_FAILED:4,ERROR:4};
+function sortRows(a,b){
+ if(sort=='date-asc')  return (a.created||'').localeCompare(b.created||'')||a.id.localeCompare(b.id);
+ if(sort=='date-desc') return (b.created||'').localeCompare(a.created||'')||a.id.localeCompare(b.id);
+ if(sort=='az') return (a.desc||'').localeCompare(b.desc||'');
+ if(sort=='za') return (b.desc||'').localeCompare(a.desc||'');
+ return (STORD[a.status]??5)-(STORD[b.status]??5)||a.id.localeCompare(b.id); // status
+}
 function inMode(s){return mode=='all'?true:(mode=='done'?s=='MERGED':s!='MERGED');}
 function tg(s){const e=document.getElementById(s);const on=e.classList.contains('hidden');e.classList.toggle('hidden');if(on)opened.add(s);else opened.delete(s);}
 const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
@@ -100,6 +123,9 @@ async function load(){
  const fb=(m,label)=>`<button onclick="setMode('${m}')" class="px-3 py-1 rounded-full ${mode==m?'bg-blue-600 text-white':'bg-slate-800 text-slate-400'}">${label}</button>`;
  const nActive=all.filter(x=>x.status!='MERGED').length, nDone=all.filter(x=>x.status=='MERGED').length;
  document.getElementById('filters').innerHTML=fb('active','⏳ Em andamento ('+nActive+')')+fb('done','✅ Concluídas ('+nDone+')')+fb('all','Todas ('+all.length+')');
+ const sb=(s,label)=>`<button onclick="setSort('${s}')" class="px-3 py-1 rounded-full ${sort==s?'bg-indigo-600 text-white':'bg-slate-800 text-slate-400'}">${label}</button>`;
+ document.getElementById('sorts').innerHTML='<span class="text-slate-500 mr-1">ordenar:</span>'+
+   sb('status','status')+sb('date-asc','📅 data ↑')+sb('date-desc','📅 data ↓')+sb('az','A–Z')+sb('za','Z–A');
  const rows=all.filter(x=>inMode(x.status));
  document.getElementById('t').textContent=new Date().toLocaleTimeString();
  // full per-plan stats (from ALL tasks) so the progress bar is correct even when filtered
@@ -107,7 +133,7 @@ async function load(){
  const groups={};rows.forEach(x=>{(groups[x.plan||'?']=groups[x.plan||'?']||[]).push(x);});
  let html='';let gi=0;
  for(const plan of Object.keys(groups)){
-  const g=groups[plan];const done=pstat[plan].done;const total=pstat[plan].total;const pct=Math.round(done/total*100);
+  const g=groups[plan].slice().sort(sortRows);const done=pstat[plan].done;const total=pstat[plan].total;const pct=Math.round(done/total*100);
   const badge=g[0].planner=='opus'?pill('🧠 planner','bg-violet-600 text-white'):pill('✍️ manual','bg-slate-700 text-slate-300');
   html+=`<section class="rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden">
    <div class="px-4 py-3 border-b border-slate-800">
@@ -121,7 +147,7 @@ async function load(){
      <div class="flex items-start gap-3">
        <div class="flex-1 min-w-0">
          <div class="font-medium text-slate-100">${esc(x.desc)}</div>
-         <div class="text-xs text-slate-500 font-mono mt-0.5">${x.id}</div>
+         <div class="text-xs text-slate-500 font-mono mt-0.5">${x.id}<span class="ml-2 text-slate-600">📅 ${esc(x.created||'')}</span></div>
        </div>
        <div class="text-right shrink-0">
          ${pill(tool,tc)}<div class="text-xs text-slate-500 mt-0.5">${esc(model)}${x.ran_model&&x.ran_model!=x.lane?' <span class="text-amber-400">↑esc</span>':''}</div>

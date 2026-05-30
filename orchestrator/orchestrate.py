@@ -13,14 +13,28 @@ Usage:
 """
 import base64
 import json
+import os
 import sys
 import time
+
+# load orchestrator/.env (KEY=VALUE lines) so model/lane settings live in one place
+_envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_envf):
+    for _l in open(_envf):
+        _l = _l.strip()
+        if _l and not _l.startswith("#") and "=" in _l:
+            _k, _v = _l.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
 
 from daytona import Daytona
 from creds import inject_into_sandbox, gh_token
 from github import GitHub
 
-OPUS = "claude"                       # claude CLI, Opus 4.8
+OPUS = "claude"                       # claude CLI lane id (Opus 4.8 by default)
+# the claude WORKER model is configurable via WORKER_CLAUDE_MODEL (orchestrator/.env or env),
+# e.g. claude-sonnet-4-6 to run the bulk of tasks on Sonnet. The VALIDATOR stays Opus always
+# (policy: hard-coded claude-opus-4-8 in run_llm_verifier) regardless of this setting.
+WORKER_CLAUDE_MODEL = os.environ.get("WORKER_CLAUDE_MODEL", "claude-opus-4-8")
 MINIMAX = "minimax/MiniMax-M2.7"
 OPATH = "export PATH=$PATH:$HOME/.opencode/bin"
 
@@ -44,7 +58,12 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
     # shells (base64->bash->bash -lc), corrupting the prompt so the worker writes nothing.
     # Piping the file as stdin passes it verbatim.
     if model == OPUS:
-        cmd = f"{OPATH}; cd {wt} && cat {specfile} | claude -p --model claude-opus-4-8 --permission-mode acceptEdits"
+        # stream-json so the log GROWS during the run (each tool/use event is a line). Without
+        # streaming, claude -p writes nothing until done, and the stall-detector in exec_wait
+        # would wrongly kill a working-but-silent worker. Streaming makes stall fire only on a
+        # TRUE hang (no events at all).
+        cmd = (f"{OPATH}; cd {wt} && cat {specfile} | claude -p --model {WORKER_CLAUDE_MODEL} "
+               f"--permission-mode acceptEdits --output-format stream-json --verbose")
         match = "claude -p"
     elif model.startswith("dumont"):
         # dumont-code agent on MiniMax M2.7 — prebuilt binary. Login via
@@ -111,7 +130,16 @@ def run_llm_verifier(dt, sid, wt, task, tag):
     cmd = (f"{OPATH}; cd {wt} && {pre}cat {specfile} | claude -p "
            "--model claude-opus-4-8 --permission-mode acceptEdits")
     dt.exec_detached(sid, cmd, logfile)
-    out = dt.exec_wait(sid, "claude -p", logfile, timeout=task.get("worker_timeout_s", 480))
+    # Opus reading a diff + judging can be slow — give the validator its OWN (longer)
+    # budget, decoupled from the worker timeout. A validator hang must NOT be fatal: treat
+    # it as a retryable FAIL so the task loops again instead of ERRORing out the whole task.
+    try:
+        # the validator runs plain `claude -p` (text, non-streaming) so its log stays silent
+        # until done — DISABLE the stall-detector here (stall=timeout) and rely on the wall-clock.
+        vt = task.get("validate_timeout_s", 720)
+        out = dt.exec_wait(sid, "claude -p", logfile, timeout=vt, stall=vt)
+    except TimeoutError as e:
+        return False, f"OPUS VALIDATION TIMED OUT ({e}) — retrying"
     ok = "VERDICT: PASS" in out
     return ok, out
 
@@ -163,10 +191,42 @@ def verify_task(dt, sid, wt, task, tag):
     return ok, out
 
 
+import re as _re
+
+def error_signature(out: str) -> str:
+    """A stable fingerprint of WHY verification failed: the deduped set of error-bearing lines
+    with volatile bits (line/col numbers, durations, hex, ms) blanked. Same signature across
+    iterations == the worker keeps hitting the same wall."""
+    keys = ("error", "fail", "expected", "cannot", "not a function", "is not defined",
+            "referenceerror", "typeerror", "no test", "✗", "assert")
+    sigs = set()
+    for l in out.splitlines():
+        ll = l.lower()
+        if any(k in ll for k in keys):
+            sigs.add(_re.sub(r"\d+|0x[0-9a-f]+|\s+", " ", ll).strip())
+    return "\n".join(sorted(sigs))
+
+
 def scope_ok(dt, sid, wt, allowed):
-    _, out = dt.exec(sid, f"cd {wt} && git status --porcelain | grep -v node_modules", timeout=30)
-    changed = [l[3:] for l in out.strip().splitlines() if l.strip()]
-    extra = [f for f in changed if f not in allowed]
+    # List changed paths as BARE paths (no status prefix) to avoid fragile column slicing of
+    # `git status --porcelain` (which dropped a leading char and caused false OUT_OF_SCOPE):
+    #   - tracked modifications/staged: `git diff --name-only HEAD`
+    #   - brand-new untracked FILES (individually, not collapsed dirs): `git ls-files --others`
+    _, out = dt.exec(sid,
+        f"cd {wt} && {{ git diff --name-only HEAD; git ls-files --others --exclude-standard; }} "
+        f"| grep -v node_modules | sort -u", timeout=30)
+    changed = [l.strip() for l in out.strip().splitlines() if l.strip()]
+    # a changed path is in-scope if it equals an allowed entry, OR sits under an allowed
+    # directory entry (allowed_files may list a dir like "scripts/qa/detectors/"). Normalize
+    # trailing slashes so "dir" and "dir/" compare equal.
+    norm = lambda p: p.rstrip("/")
+    allowset = {norm(a) for a in allowed}
+    def ok(f):
+        f = norm(f)
+        if f in allowset:
+            return True
+        return any(f == a or f.startswith(a + "/") for a in allowset)
+    extra = [f for f in changed if not ok(f)]
     return (len(extra) == 0), changed, extra
 
 
@@ -199,6 +259,23 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     if "WORKTREE_OK" not in wtout:
         return {"id": tid, "status": "WORKTREE_FAILED", "out": wtout[-400:]}
 
+    # SPARSE-CHECKOUT FIX: the golden is a sparse clone (code dirs only, to fit the 3G disk),
+    # so a task whose allowed_files live OUTSIDE the base cone (e.g. src/modules/, apps/admin/,
+    # apps/rio-mobile/) gets NO checkout — the worker edits files that aren't in the tree,
+    # verify can't find them, and `git add` rejects the path as outside-sparse. Add each
+    # allowed file's directory to THIS worktree's cone so its real content is materialized.
+    # include allowed_files' dirs (where the worker WRITES) plus task `sparse_extra` dirs
+    # (modules the verify step IMPORTS at runtime, e.g. a script that imports src/modules/citygen
+    # — those must be materialized too or the test fails to import them).
+    sp_dirs = sorted({os.path.dirname(f) for f in allowed if os.path.dirname(f)}
+                     | set(task.get("sparse_extra", [])))
+    if sp_dirs:
+        addlist = " ".join(json.dumps(d) for d in sp_dirs)
+        _, spout = dt.exec(sid, f"cd {wt} && git sparse-checkout add {addlist} && echo SPARSE_OK",
+                           timeout=90)
+        if "SPARSE_OK" not in spout:
+            return {"id": tid, "status": "WORKTREE_FAILED", "out": "sparse add failed: " + spout[-300:]}
+
     spec = task["spec"]
     worker_timeout = task.get("worker_timeout_s", 480)   # kill a single hung worker
     task_budget = task.get("task_budget_s", 1500)        # wall-clock cap for the whole task
@@ -226,31 +303,42 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
                 log(f"[{tid}] hung cheap-lane -> escalate to Opus")
             spec = task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits."
             continue
-        ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
+        try:
+            ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
+        except TimeoutError as e:
+            # a hung verification stage (e.g. evidence_cmd / vision) is retryable, never fatal
+            log(f"[{tid}] verify HUNG iter {i}: {e}")
+            ok, out = False, f"verification timed out: {e}"
         if ok:
             log(f"[{tid}] verify PASS on iter {i}")
             passed = True
             break
         log(f"[{tid}] verify FAIL iter {i}")
         last_fail_out = out
-        # no-progress detection: identical verify output N times => genuinely stuck.
-        # Lets progressing tasks run to the (high) cap, kills true stalls in ~N rounds.
-        norm = "\n".join(l for l in out.splitlines() if "Duration" not in l and "Start at" not in l)
-        if norm == last_out:
+        # SEMANTIC no-progress detection: compare the ERROR SIGNATURE, not the whole output.
+        # Raw output varies run-to-run (timings, paths, line order) so exact-match almost never
+        # fires and a doomed task burns every iteration. The signature is the deduped set of
+        # error-bearing lines (stripped of volatile numbers) — same failure repeating N times
+        # means the worker isn't converging, so abort early and let the brain replan.
+        sig = error_signature(out)
+        if sig and sig == last_out:
             stuck += 1
         else:
-            stuck = 0; last_out = norm
+            stuck = 0; last_out = sig
         if stuck >= no_progress_limit:
-            log(f"[{tid}] no progress for {no_progress_limit} iters — stuck, stopping")
+            log(f"[{tid}] same error {no_progress_limit}x — stuck, stopping")
             cleanup_worktree(dt, sid, wt, branch)
             return {"id": tid, "status": "STUCK_NO_PROGRESS", "iters": i, "model": model,
                     "error": out[-400:]}
-        if model == MINIMAX or model.startswith("dumont"):
+        # ESCALATION: any non-claude lane (codex OR dumont/minimax) that keeps failing verify is
+        # likely on a task too hard for it — hand it to the claude lane after 2 fails. claude is
+        # the strongest worker; pipeline/multi-symbol tasks belong there (granularity routing).
+        if model != OPUS:
             minimax_fails += 1
             if minimax_fails >= 2:
-                log(f"[{tid}] escalating cheap-lane -> Opus")
+                log(f"[{tid}] escalating {model} -> claude (repeated verify fail)")
                 model = OPUS
-                stuck = 0; last_out = ""   # give Opus a fresh no-progress budget
+                stuck = 0; last_out = ""   # give claude a fresh no-progress budget
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
                 "Fix it. The verification command output was:\n" + out[-1500:])
     if not passed:
@@ -267,9 +355,16 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # the sparse checkout omits root .gitignore, so -A would stage the node_modules symlink.
     log(f"[{tid}] commit + push")
     add_list = " ".join(json.dumps(f) for f in allowed)
-    dt.exec(sid, f"cd {wt} && git add -- {add_list} && "
+    # force-push (+ref): an agent branch is owned solely by THIS task and recreated from the
+    # integration base every run, so a leftover remote branch from a prior run would otherwise
+    # reject the push as non-fast-forward -> a silent push failure later surfaces as a confusing
+    # PR-create "head invalid" 422. Echo a sentinel so we can confirm the push actually landed.
+    _, pushout = dt.exec(sid, f"cd {wt} && git add -- {add_list} && "
                  f"git commit -q -m {json.dumps(task['commit'])} && "
-                 f"git push -u origin {branch} 2>&1 | tail -2", timeout=120)
+                 f"git push -u origin +{branch} 2>&1 && echo PUSH_OK || echo PUSH_FAIL", timeout=120)
+    if "PUSH_OK" not in pushout:
+        cleanup_worktree(dt, sid, wt, branch)
+        return {"id": tid, "status": "ERROR", "error": "git push failed: " + pushout[-300:]}
 
     # open PR vs integration branch (NOT main)
     pr = gh.create_pr(head=branch, base=integration_branch,
@@ -440,13 +535,33 @@ def main():
     free = queue.Queue()
     live_sids = []
     try:
+        dead = 0
         for sid in pool:
             try:
                 dt.start(sid); inject_into_sandbox(dt, sid, ght)
+                # tight idle auto-stop so a sandbox left idle (task done, run crashed) stops
+                # itself in ~1 min instead of billing for the 120-min default. Safe mid-run:
+                # 10s exec_wait polling keeps an active sandbox's lastActivity fresh.
+                dt.set_autostop(sid, cfg.get("idle_autostop_min", 1))
                 free.put(sid); live_sids.append(sid)
                 log(f"pool sandbox ready {sid[:8]}")
             except Exception as e:
                 log(f"WARN pool sandbox {sid[:8]} unavailable: {e}")
+                dead += 1
+        # AUTO-HEAL (conditional, AFTER the whole pool is tried): only replace as many dead
+        # sandboxes as the pending work actually needs. Provisioning a fresh golden costs minutes
+        # and blocks, so 1 dead of 8 with only 3 tasks heals NOTHING (7 live already cover it).
+        deficit = max(0, len(pending) - len(live_sids))
+        for _ in range(min(dead, deficit)):
+            try:
+                nsid = provision_fresh()
+                dt.set_autostop(nsid, cfg.get("idle_autostop_min", 1))
+                free.put(nsid); live_sids.append(nsid)
+                log(f"healed: fresh sandbox {nsid[:8]} added")
+            except Exception as e2:
+                log(f"WARN could not heal: {e2}")
+        if dead and deficit == 0:
+            log(f"skip heal — {len(live_sids)} live cover {len(pending)} tasks ({dead} dead ignored)")
         # build a semaphore per lane present in the pending work (cap = per_lane_max)
         for t in pending:
             lk = lane_key(t.get("worker_model", "?"))

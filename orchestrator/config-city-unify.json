@@ -1,0 +1,102 @@
+{
+  "integration_branch": "integration/platform-city-unify",
+  "max_concurrent": 4,
+  "per_lane_max": 15,
+  "global_deadline_s": 7200,
+  "idle_autostop_min": 1,
+  "pool_sids": [
+    "0674e927-5ed1-416c-afc6-261db22f22c0",
+    "3543c00d-4bfa-4ef1-80b8-39cd5ea01aae",
+    "40d398ef-d3f6-4384-aae7-5385ef156ac7",
+    "a2d073a3-5257-46af-b265-dc67523233ce",
+    "e72c3d30-475d-4917-a1a2-5dfbc011dc6c",
+    "e5de56e3-fbc4-46b5-a6b2-f9d9673d36d9",
+    "ac95330a-e16f-430b-b691-86662ab2dc76",
+    "f02e5b06-966f-4a91-9ab9-478fb716ed40"
+  ],
+  "objective": "Platform & City Unification \u2014 one JS city codebase, no platform leaks (web + React Native)",
+  "planner": "hand",
+  "tasks": [
+    {
+      "id": "platform-unification",
+      "title": "Remove platform leaks from shared city code: web adapter factory + native entry portal host",
+      "worker_model": "claude",
+      "commit": "fix(platform): unify city adapter \u2014 factory pixelRatio + native entry portal host, no window leak",
+      "allowed_files": [
+        "src/modules/scene-runtime/adapters/platform-adapters.ts",
+        "src/modules/scene-runtime/urban-grammar/scene-builder.ts",
+        "src/modules/scene-runtime/adapters/native-entry-portal-host.ts",
+        "test/scene-runtime/platform-adapter.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/scene-runtime/platform-adapter.spec.ts",
+      "worker_timeout_s": 600,
+      "validate_timeout_s": 720,
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "spec": "cd /Users/marcos/projects/babylon-cinema FIRST. Read CLAUDE.md + AGENTS.md and obey all hard rules (NodeNext ESM: imports end in .js; comments = WHY only; surgical changes; TypeScript only). This implements Tasks 1, 2 and 3 of docs/superpowers/plans/2026-05-30-platform-city-unification.md \u2014 read that plan file for the exact code blocks. GOAL: the shared city scene path (buildCityScene -> assembleUrbanGrammarScene) must have ZERO direct window/DOM access so it runs identically on web and React Native. Do EXACTLY these three things, only touching the four allowed files:\n(1) In src/modules/scene-runtime/adapters/platform-adapters.ts: fix createWebPlatformAdapter so viewport.pixelRatio() returns (typeof window!=='undefined' ? (window.devicePixelRatio||1) : 1) and add optional capabilities override to WebPlatformAdapterOptions (capabilities?: Partial<PlatformCapabilities>), merged as {...WEB_CAPABILITIES, ...opts.capabilities}.\n(2) In src/modules/scene-runtime/urban-grammar/scene-builder.ts: refactor buildUrbanGrammarScene to use createWebPlatformAdapter (import it) instead of building an inline adapter with hardcoded window.devicePixelRatio; pass capabilities:{preferWebGPU: preset.engine.preferWebGPU}. Remove the now-dead inline window access. Do NOT remove installWebNavigationControls/createWebEntryPortalHost imports if still used by assembleUrbanGrammarScene.\n(3) Create src/modules/scene-runtime/adapters/native-entry-portal-host.ts exporting createNativeEntryPortalHost(): EntryPortalHostHooks with onKeyDown -> {dispose(){}}, delay(ms)->setTimeout promise, now()->Date.now(); and in scene-builder.ts wire it: replace 'host: canvas ? createWebEntryPortalHost() : undefined' with 'host: canvas ? createWebEntryPortalHost() : createNativeEntryPortalHost()'.\nCreate test/scene-runtime/platform-adapter.spec.ts EXACTLY as in the plan (covers createWebPlatformAdapter pixelRatio with/without window, and createNativeEntryPortalHost delay/now/onKeyDown). You MUST NOT finish until `npx vitest run test/scene-runtime/platform-adapter.spec.ts` passes. Verify exact symbol/type names by reading the real files (WEB_CAPABILITIES, PlatformCapabilities, EntryPortalHostHooks, createStaticViewport, preset.engine.preferWebGPU) \u2014 adapt the plan's code to the actual signatures; if a name differs, use the real one. Do not edit any file outside the four allowed. If genuinely blocked, STOP and report. Report files touched + verify result.",
+      "sparse_extra": [
+        "src/modules"
+      ]
+    },
+    {
+      "id": "ambient-raf-guard",
+      "title": "AmbientAudio: guard requestAnimationFrame with cross-platform ticker (RN/Hermes)",
+      "worker_model": "dumont",
+      "commit": "fix(ambient): guard requestAnimationFrame with cross-platform ticker (RN/Hermes compat)",
+      "allowed_files": [
+        "src/game/audio/ambient.ts",
+        "test/game/audio/ambient.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/game/audio/ambient.spec.ts",
+      "worker_timeout_s": 480,
+      "validate_timeout_s": 720,
+      "max_iters": 10,
+      "no_progress_limit": 4,
+      "spec": "cd /Users/marcos/projects/babylon-cinema FIRST. Read CLAUDE.md + AGENTS.md and obey all hard rules (NodeNext ESM imports end in .js; comments = WHY only; surgical; TypeScript only). This is Task 4 of docs/superpowers/plans/2026-05-30-platform-city-unification.md \u2014 read that section for the exact code. PROBLEM: src/game/audio/ambient.ts is in the SHARED /game/ tree but calls requestAnimationFrame directly, which crashes in React Native / Hermes. FIX: introduce a module-level cross-platform `tick` = (typeof requestAnimationFrame!=='undefined' ? requestAnimationFrame : (fn)=>setTimeout(fn,16)) and use it everywhere ambient.ts currently calls requestAnimationFrame. Also guard `typeof Audio==='undefined'` early-return in play(). Keep behavior identical on browser. ONLY touch the two allowed files. Create test/game/audio/ambient.spec.ts EXACTLY as in the plan (play() does not throw when requestAnimationFrame is undefined, with Audio/performance stubbed). Read the real ambient.ts first to match its existing class/method/field names (AmbientLayer shape, active map, etc.) \u2014 adapt the plan code to the real signatures. You MUST NOT finish until `npx vitest run test/game/audio/ambient.spec.ts` passes. No edits outside the two allowed files. If blocked, STOP and report. Report files touched + verify result."
+    },
+    {
+      "id": "rn-city-bake-pipeline",
+      "title": "export-city-for-rn script + wire archetype.json sidecar into RN App.tsx",
+      "worker_model": "codex",
+      "commit": "feat(rn): export-city-for-rn pipeline + wire archetype sidecar into App.tsx",
+      "allowed_files": [
+        "scripts/export-city-for-rn.ts",
+        "test/scripts/export-city-for-rn.spec.ts",
+        "apps/rio-mobile/App.tsx",
+        "apps/rio-mobile/assets/city/archetype.json"
+      ],
+      "verify_cmd": "npx vitest run test/scripts/export-city-for-rn.spec.ts",
+      "worker_timeout_s": 720,
+      "validate_timeout_s": 720,
+      "max_iters": 14,
+      "no_progress_limit": 5,
+      "spec": "cd /Users/marcos/projects/babylon-cinema FIRST. Read CLAUDE.md + AGENTS.md and obey all hard rules (NodeNext ESM imports end in .js; run scripts via tsx; comments = WHY only; surgical; TypeScript only; external JSON through Zod where applicable). This implements Tasks 5 and 6 of docs/superpowers/plans/2026-05-30-platform-city-unification.md \u2014 read those sections for the exact code blocks. DO:\n(1) Create scripts/export-city-for-rn.ts \u2014 a tsx CLI (parseArgs: --archetype, --seed, --width, --depth, --out) that runs the real archetype->layout->plan->manifest pipeline and writes plan.json, manifest.json, validation.json, archetype.json to the --out dir (default apps/rio-mobile/assets/city). Use the plan's code as the template, BUT verify every import path and exported symbol against the REAL repo (loadArchetype, buildUrbanLayout, VIBE_BY_ID, KIND_BY_ID, cityPlanFromUrbanLayout, compileUrbanPlanToMinimalManifest, archetype.morphology/density/theme.region, configs/archetypes/<id>). If a path/symbol in the plan does not exist, find the correct one by reading src/. Pick a real archetype id that exists under configs/archetypes for the test.\n(2) Run the script once to generate apps/rio-mobile/assets/city/archetype.json (commit that file so App.tsx can import it).\n(3) In apps/rio-mobile/App.tsx: import cityArchetype from './assets/city/archetype.json' and add 'archetype.json': cityArchetype to the files map passed to createNativePlatformAdapter. Surgical \u2014 only that import + that map entry.\nCreate test/scripts/export-city-for-rn.spec.ts as in the plan (runs the script via tsx, asserts the 4 JSON files exist and plan.json has a non-empty buildings array). Adjust the archetype id in the test to a real one. You MUST NOT finish until `npx vitest run test/scripts/export-city-for-rn.spec.ts` passes. No edits outside the four allowed files. If genuinely blocked (e.g. pipeline symbol truly missing), STOP and report exactly what is missing. Report files touched + verify result.",
+      "task_budget_s": 3000,
+      "sparse_extra": [
+        "src/modules",
+        "src/game-engine"
+      ]
+    },
+    {
+      "id": "admin-dynamic-minicities",
+      "title": "Admin minicities list reads archetype configs dynamically (not a hardcoded array)",
+      "worker_model": "codex",
+      "commit": "feat(admin): minicities list merges dynamic archetype configs with static entries",
+      "allowed_files": [
+        "apps/admin/src/data/minicities.ts",
+        "apps/admin/src/pages/MinicitiesTab.tsx",
+        "test/admin/minicities.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/admin/minicities.spec.ts",
+      "worker_timeout_s": 600,
+      "validate_timeout_s": 720,
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "spec": "cd /Users/marcos/projects/babylon-cinema FIRST. Read CLAUDE.md + AGENTS.md and obey all hard rules (NodeNext ESM imports end in .js; comments = WHY only; surgical; TypeScript only). This is Task 7 of docs/superpowers/plans/2026-05-30-platform-city-unification.md \u2014 read that section. PROBLEM: the admin minicities list is a hardcoded static array; it should also reflect real archetype configs. DO (surgical, only the 3 allowed files):\n(1) In apps/admin/src/data/minicities.ts: keep the existing static MINICITIES but add an exported pure helper that merges the static list with a passed-in array of dynamic archetype ids/objects into a single deduped list (e.g. export function mergeMinicities(static, dynamicArchetypeIds) -> MiniCity[]). Read the real MiniCity type first and reuse it; do not invent fields.\n(2) In apps/admin/src/pages/MinicitiesTab.tsx: fetch the archetype list from the existing admin API (find the real endpoint by reading the file/sibling API code; e.g. /api/archetypes) and call mergeMinicities to render the combined list. Keep it minimal and gracefully fall back to the static list if the fetch fails.\n(3) Create test/admin/minicities.spec.ts that unit-tests mergeMinicities: static entries preserved, dynamic ids added, no duplicates. You MUST NOT finish until `npx vitest run test/admin/minicities.spec.ts` passes. Read the real files before editing to match exact types/exports; adapt naming to what exists. No network in the unit test \u2014 test only the pure merge helper. No edits outside the 3 allowed files. If blocked, STOP and report. Report files touched + verify result.",
+      "sparse_extra": [
+        "apps/admin",
+        "src/modules"
+      ]
+    }
+  ]
+}

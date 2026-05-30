@@ -54,6 +54,16 @@ class Daytona:
     def create(self, auto_stop=30):
         return self._req("POST", "/sandbox", {"autoStopInterval": auto_stop})
 
+    def set_autostop(self, sid: str, minutes: int):
+        """Idle minutes before Daytona auto-stops the sandbox (stopped = $0, disk kept,
+        restart ~1.2s). Endpoint is POST /sandbox/{id}/autostop/{minutes}. Safe to set low
+        (e.g. 1) during a run: the 10s exec_wait polling keeps lastActivity fresh, so it only
+        fires once the sandbox is genuinely idle (task done)."""
+        try:
+            self._req("POST", f"/sandbox/{sid}/autostop/{minutes}")
+        except Exception:
+            pass
+
     def get(self, sid: str):
         return self._req("GET", f"/sandbox/{sid}")
 
@@ -143,25 +153,42 @@ class Daytona:
         """Kill any process matching `match` on the sandbox (runaway agentic worker)."""
         self.exec(sid, f"pkill -9 -f {json.dumps(match)} 2>/dev/null; echo killed", timeout=30)
 
-    def exec_wait(self, sid: str, match: str, logfile: str, poll=10, timeout=480):
+    def exec_wait(self, sid: str, match: str, logfile: str, poll=10, timeout=480, stall=150):
         """Wait until the completion sentinel appears in the logfile; return its tail.
 
-        On timeout the runaway process is KILLED (so it stops burning the sandbox) and a
-        TimeoutError is raised for the caller to handle as a failed iteration."""
+        Two kill conditions, whichever fires first:
+          - wall-clock `timeout`: hard cap on total runtime.
+          - `stall`: the logfile stops GROWING for `stall` seconds. A hung `claude -p`/`codex`
+            produces no output; waiting the full wall-clock wastes ~10min before the retry.
+            Detecting the stall (no new bytes) kills it in ~`stall`s, so recovery is fast.
+        On either, the runaway process is KILLED and TimeoutError is raised for the caller to
+        handle as a failed iteration."""
         t0 = time.time()
+        last_size, last_growth = -1, time.time()
         while True:
-            # check the wall-clock FIRST so the deadline is honored even if a poll blocked
             if time.time() - t0 > timeout:
                 self.kill(sid, match)
                 raise TimeoutError(f"'{match}' exceeded {timeout}s — killed")
-            # short poll timeout + no retries so a slow proxy can't stretch the loop
+            if time.time() - last_growth > stall:
+                self.kill(sid, match)
+                raise TimeoutError(f"'{match}' stalled {stall}s (no log output) — killed")
+            # short poll timeout + no retries so a slow proxy can't stretch the loop.
+            # `wc -c` reports the log size so we can detect a stall (no new bytes).
             try:
                 _, out = self.exec(
                     sid,
                     f"if grep -q {self.SENTINEL} {logfile} 2>/dev/null; then echo DONE; "
-                    f"tail -40 {logfile}; else echo RUNNING; fi", timeout=25, retries=1)
+                    f"tail -40 {logfile}; else echo RUNNING; wc -c <{logfile} 2>/dev/null; fi",
+                    timeout=25, retries=1)
             except RuntimeError:
-                out = "RUNNING"   # transient proxy error — keep waiting, deadline still applies
+                out = "RUNNING"   # transient proxy error — keep waiting, deadlines still apply
             if "DONE" in out:
                 return out
+            # last token from `wc -c` is the current byte count; growth resets the stall clock
+            try:
+                size = int(out.strip().split()[-1])
+                if size != last_size:
+                    last_size, last_growth = size, time.time()
+            except (ValueError, IndexError):
+                pass
             time.sleep(poll)
