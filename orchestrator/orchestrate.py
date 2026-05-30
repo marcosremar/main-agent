@@ -15,10 +15,13 @@ import base64
 import fcntl
 import json
 import os
+import queue
 import signal as _signal
 import sys
 import time
-import tempfile
+import uuid
+import atexit
+from datetime import datetime, timezone
 
 # load orchestrator/.env (KEY=VALUE lines) so model/lane settings live in one place
 _envf = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -34,12 +37,16 @@ from creds import inject_into_sandbox, gh_token
 from github import GitHub
 
 OPUS = "claude"                       # claude CLI lane id (Opus 4.8 by default)
-# the claude WORKER model is configurable via WORKER_CLAUDE_MODEL (orchestrator/.env or env),
-# e.g. claude-sonnet-4-6 to run the bulk of tasks on Sonnet. The VALIDATOR stays Opus always
-# (policy: hard-coded claude-opus-4-8 in run_llm_verifier) regardless of this setting.
 WORKER_CLAUDE_MODEL = os.environ.get("WORKER_CLAUDE_MODEL", "claude-opus-4-8")
 MINIMAX = "minimax/MiniMax-M2.7"
 OPATH = "export PATH=$PATH:$HOME/.opencode/bin"
+
+
+class Escalate(Exception):
+    def __init__(self, new_lane, spec):
+        self.new_lane = new_lane
+        self.spec = spec
+        super().__init__(f"escalate to {new_lane}")
 
 
 def log(msg): print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -47,6 +54,18 @@ def log(msg): print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def b64(s: str) -> str:
     return base64.b64encode(s.encode()).decode()
+
+
+def _wt_file_hashes(dt, sid, wt, files):
+    """Return {filepath: sha1_hex} by running git hash-object in the worktree."""
+    h = {}
+    for f in files:
+        _, out = dt.exec(sid, f"cd {wt} && git hash-object {json.dumps(f)} 2>/dev/null",
+                         timeout=15)
+        sha = out.strip()
+        if sha:
+            h[f] = sha
+    return h
 
 
 def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
@@ -65,26 +84,26 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480):
         # streaming, claude -p writes nothing until done, and the stall-detector in exec_wait
         # would wrongly kill a working-but-silent worker. Streaming makes stall fire only on a
         # TRUE hang (no events at all).
-        cmd = (f"{OPATH}; cd {wt} && cat {specfile} | claude -p --model {WORKER_CLAUDE_MODEL} "
+        cmd = (f"{OPATH}; cd \"{wt}\" && cat {specfile} | claude -p --model {WORKER_CLAUDE_MODEL} "
                f"--permission-mode acceptEdits --output-format stream-json --verbose")
-        match = "claude -p"
+        match = f"claude -p -i {tag}"
     elif model.startswith("dumont"):
         # dumont-code agent on MiniMax M2.7 — prebuilt binary. Login via
         # ~/.dumont/.credentials.json, key via $MINIMAX_API_KEY (~/.profile, loaded by bash -l).
         dmodel = model.split(":", 1)[1] if ":" in model else "minimax/m2-7"
-        cmd = (f"export DUMONT_CONFIG=$HOME/.dumont/dumont.json; cd {wt} && "
+        cmd = (f"export DUMONT_CONFIG=$HOME/.dumont/dumont.json; cd \"{wt}\" && "
                f"cat {specfile} | ~/bin/dumont -p --model {dmodel} "
                "--dangerously-skip-permissions --output-format text")
-        match = "dumont"
+        match = f"dumont -p -i {tag}"
     elif model.startswith("codex"):
         # OpenAI Codex CLI (gpt-5.3-codex-spark). ChatGPT auth at ~/.codex/auth.json. Reads
         # instructions from stdin. Externally sandboxed (Daytona) -> bypass approvals.
         cxmodel = model.split(":", 1)[1] if ":" in model else "gpt-5.3-codex-spark"
         cmd = (f"cat {specfile} | codex exec -m {cxmodel} "
-               f"--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C {wt}")
-        match = "codex exec"
+               f"--dangerously-bypass-approvals-and-sandbox --skip-git-repo-check -C \"{wt}\"")
+        match = f"codex exec -i {tag}"
     else:
-        cmd = f"{OPATH}; cd {wt} && cat {specfile} | opencode run -m {model}"
+        cmd = f"{OPATH}; cd \"{wt}\" && cat {specfile} | opencode run -m {model}"
         match = "opencode run"
     dt.exec_detached(sid, cmd, logfile)
     return dt.exec_wait(sid, match, logfile, timeout=worker_timeout)
@@ -99,7 +118,7 @@ def cleanup_worktree(dt, sid, wt, branch):
 
 def verify(dt, sid, wt, verify_cmd):
     """Deterministic verification = run the task's verify command. Returns (ok, output)."""
-    full = (f"{OPATH}; cd {wt} && {verify_cmd} 2>&1 | tail -40; "
+    full = (f"{OPATH}; cd \"{wt}\" && {verify_cmd} 2>&1 | tail -100; "
             "echo VERIFY_EXIT=${PIPESTATUS[0]}")
     _, out = dt.exec(sid, full, timeout=300)
     ok = "VERIFY_EXIT=0" in out
@@ -131,8 +150,8 @@ def run_llm_verifier(dt, sid, wt, task, tag):
     specfile = f"/tmp/verify-{tag}.txt"
     logfile = f"/tmp/verify-{tag}.log"
     dt.exec(sid, f"echo {b64(prompt)} | base64 -d > {specfile}", timeout=30)
-    pre = f"{evidence}; " if evidence else ""
-    cmd = (f"{OPATH}; cd {wt} && {pre}cat {specfile} | claude -p "
+    pre = f"{evidence} && " if evidence else ""
+    cmd = (f"{OPATH}; cd \"{wt}\" && {pre}cat {specfile} | claude -p "
            "--model claude-opus-4-8 --permission-mode acceptEdits")
     dt.exec_detached(sid, cmd, logfile)
     # Opus reading a diff + judging can be slow — give the validator its OWN (longer)
@@ -155,42 +174,53 @@ def verify_vision(dt, sid, wt, task):
     model (gpt-4o-mini via OpenRouter). Returns (ok, output)."""
     import base64 as _b64, tempfile, os
     from vision import judge_image
-    if task.get("evidence_cmd"):
-        dt.exec(sid, f"{OPATH}; cd {wt} && {task['evidence_cmd']}",
-                timeout=task.get("worker_timeout_s", 480))
+    evidence = task.get("evidence_cmd", "")
+    if evidence:
+        _, evout = dt.exec(sid, f"{OPATH}; cd \"{wt}\" && {evidence}",
+                           timeout=task.get("worker_timeout_s", 480))
+        if "VERIFY_EXIT=0" not in evout:
+            return False, f"evidence_cmd failed: {evout[-300:]}"
     img = task["evidence_image"]
-    _, out = dt.exec(sid, f"cd {wt} && base64 -w0 {img} 2>/dev/null || base64 {img}", timeout=60)
+    _, out = dt.exec(sid, f"cd \"{wt}\" && base64 -w0 {img} 2>/dev/null || base64 {img}", timeout=60)
     data = out.strip().splitlines()[-1] if out.strip() else ""
     if not data:
         return False, f"no evidence image at {img}"
-    tmp = tempfile.mktemp(suffix=".png")
-    with open(tmp, "wb") as f:
-        f.write(_b64.b64decode(data))
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     try:
-        r = judge_image(tmp, task["criteria"], model=task.get("vision_model"))
+        tmp.write(_b64.b64decode(data))
+        tmp.close()
+        spec_lines = task.get("spec", "").splitlines()[:5]
+        criteria = task.get("criteria", "")
+        truncated_spec = "\n".join(spec_lines)
+        r = judge_image(tmp.name, criteria, model=task.get("vision_model"))
     finally:
-        os.remove(tmp)
-    return r["ok"], f"vision score={r.get('score')} | {r.get('verdict')}\n{r.get('raw','')}"
+        os.remove(tmp.name)
+    return r["ok"], f"vision score={r.get('score')} | {r.get('verdict')}\n{truncated_spec}\n{r.get('raw','')}"
 
 
-def verify_task(dt, sid, wt, task, tag):
+def verify_task(dt, sid, wt, task, tag, opus_validate_default=True):
     """Dispatch verification (layered): deterministic command gate FIRST (free/cheap), then
     an optional fuzzy verifier — `vision` (cheap vision model on a screenshot/render) or
     `llm` (independent adversarial Opus). Pass requires ALL configured stages."""
     ok, out = True, ""
+    mode = task.get("verifier")
+    has_vision = mode == "vision"
     if task.get("verify_cmd"):
         ok, out = verify(dt, sid, wt, task["verify_cmd"])
         if not ok:
             return ok, out
-    mode = task.get("verifier")
-    if mode == "vision":
+    elif has_vision:
+        pass  # vision tasks without verify_cmd are accepted (evidence_cmd is the gate)
+    else:
+        return False, "no verify_cmd and no vision verifier"
+    if has_vision:
         vok, vout = verify_vision(dt, sid, wt, task)
         return vok, (out + "\n--- VISION VERIFIER ---\n" + vout)
     # POLICY: validation is ALWAYS done by Opus (Claude Code), regardless of which (possibly
     # weaker) worker did the task. The deterministic gate above is a cheap pre-filter; the
     # final judgment that the change is genuinely correct is Opus's. Disable with
     # opus_validate:false only for trivially-objective tasks where the command is sufficient.
-    if mode == "llm" or task.get("opus_validate", True):
+    if mode == "llm" or task.get("opus_validate", opus_validate_default):
         lok, lout = run_llm_verifier(dt, sid, wt, task, tag)
         return lok, (out + "\n--- OPUS VALIDATION ---\n" + lout)
     return ok, out
@@ -198,16 +228,16 @@ def verify_task(dt, sid, wt, task, tag):
 
 import re as _re
 
+_ERROR_PAT = _re.compile(r"(?:^|\n)(Error|Error:|failed|FAILED)", _re.IGNORECASE | _re.MULTILINE)
+
 def error_signature(out: str) -> str:
     """A stable fingerprint of WHY verification failed: the deduped set of error-bearing lines
     with volatile bits (line/col numbers, durations, hex, ms) blanked. Same signature across
     iterations == the worker keeps hitting the same wall."""
-    keys = ("error", "fail", "expected", "cannot", "not a function", "is not defined",
-            "referenceerror", "typeerror", "no test", "✗", "assert")
     sigs = set()
     for l in out.splitlines():
         ll = l.lower()
-        if any(k in ll for k in keys):
+        if _ERROR_PAT.search(l):
             sigs.add(_re.sub(r"\d+|0x[0-9a-f]+|\s+", " ", ll).strip())
     return "\n".join(sorted(sigs))
 
@@ -216,6 +246,9 @@ def scope_ok(dt, sid, wt, allowed):
     # List changed paths as BARE paths (no status prefix) to avoid fragile column slicing of
     # `git status --porcelain` (which dropped a leading char and caused false OUT_OF_SCOPE):
     #   - tracked modifications:  `git diff --name-only HEAD`
+    #     NOTE: git diff includes DELETED files — a removed file IS a changed path and is
+    #     checked against allowed_files just like a new/modified file. This is intentional;
+    #     if a task deletes a file it must be in allowed_files to pass scope_ok.
     #   - staged in index:        `git diff --cached --name-only`
     #   - brand-new untracked FILES (individually, not collapsed dirs): `git ls-files --others`
     _, out = dt.exec(sid,
@@ -237,10 +270,12 @@ def scope_ok(dt, sid, wt, allowed):
     return (len(extra) == 0), changed, extra
 
 
-def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
+def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_key):
     tid = task["id"]
-    branch = f"agent/{tid}"
-    wt = f"/home/daytona/wt/{tid}"
+    # sanitize tid for path use: / creates subdirectories in wt path, replace with -
+    safe_tid = tid.replace("/", "-")
+    branch = f"agent/{safe_tid}"
+    wt = f"/home/daytona/wt/{safe_tid}"
     allowed = task["allowed_files"]
     # clean up stale tmp artifacts from prior runs — they accumulate and waste disk
     dt.exec(sid, "rm -f /tmp/spec-{tid}-*.txt /tmp/work-{tid}-*.log /tmp/verify-{tid}-*.txt "
@@ -252,6 +287,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # MiniMax for well-specified). It is NOT a blanket MiniMax default; MINIMAX here is
     # only the fallback when a task spec omits an explicit classification.
     model = task.get("worker_model", MINIMAX)
+    task["_lane"] = lane_key(model)
     # high cap — the no-progress detector (below) is the real guard against stuck loops,
     # so genuinely-progressing tasks can iterate a lot without a stall burning cost forever.
     max_iters = task.get("max_iters", 60)
@@ -316,10 +352,12 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
             run_worker(dt, sid, wt, model, spec, f"{tid}-{i}", worker_timeout)
         except TimeoutError as e:
             log(f"[{tid}] worker HUNG iter {i}: {e}")
-            # a hung worker counts as a failed iteration; escalate and retry
             if model == MINIMAX or model.startswith("dumont"):
-                model = OPUS
                 log(f"[{tid}] hung cheap-lane -> escalate to Opus")
+                new_lane = OPUS
+                task["_lane"] = new_lane
+                raise Escalate(new_lane,
+                    task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits.")
             spec = task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits."
             continue
         try:
@@ -356,16 +394,14 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
             cleanup_worktree(dt, sid, wt, branch)
             return {"id": tid, "status": "STUCK_NO_PROGRESS", "iters": i, "model": model,
                     "error": out[-400:]}
-        # ESCALATION: any non-claude lane (codex OR dumont/minimax) that keeps failing verify is
-        # likely on a task too hard for it — hand it to the claude lane after 2 fails. claude is
-        # the strongest worker; pipeline/multi-symbol tasks belong there (granularity routing).
         if model != OPUS:
             minimax_fails += 1
             if minimax_fails >= 2:
                 log(f"[{tid}] escalating {model} -> claude (repeated verify fail)")
-                model = OPUS
-                stuck = 0; last_out = ""   # give claude a fresh no-progress budget
-                log(f"[{tid}] WARN: lane semaphore mismatch on escalation — claude lane cap not enforced for this task")
+                new_lane = OPUS
+                stuck = 0; last_out = ""
+                task["_lane"] = new_lane
+                raise Escalate(new_lane, spec)
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
                 "Fix it. The verification command output was:\n" + out[-4000:])
         # cap spec at 60KB — truncate oldest feedback if it grows beyond that
@@ -404,23 +440,26 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
         cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "ERROR", "error": "git push failed: " + pushout[-300:]}
 
-    # open PR vs integration branch (NOT main)
-    verify_display = task.get("verify_cmd") or f"verifier:{task.get('verifier','llm')}"
-    pr = gh.create_pr(head=branch, base=integration_branch,
-                      title=task["commit"],
-                      body=f"Automated by orchestrator. Task `{tid}`.\nVerify: `{verify_display}`")
-    num = pr["number"]
-    log(f"[{tid}] PR #{num} -> {integration_branch}")
-
-    # integration agent: scope check on PR files + final merge into integration branch
-    pr_files = gh.pr_files(num)
-    pr_extra = [f for f in pr_files if f not in allowed and not f.startswith("node_modules")]
-    if pr_extra:
-        cleanup_worktree(dt, sid, wt, branch)
-        return {"id": tid, "status": "PR_OUT_OF_SCOPE", "pr": num, "extra": pr_extra}
-    # serialize merges — many parallel tasks merge into the SAME integration branch
+    # open PR vs integration branch (NOT main) — serialize with merge to prevent race
     import contextlib
     with (merge_lock or contextlib.nullcontext()):
+        verify_display = task.get("verify_cmd") or f"verifier:{task.get('verifier','llm')}"
+        pr = gh.create_pr(head=branch, base=integration_branch,
+                          title=task["commit"],
+                          body=f"Automated by orchestrator. Task `{tid}`.\nVerify: `{verify_display}`")
+        num = pr["number"]
+        log(f"[{tid}] PR #{num} -> {integration_branch}")
+
+        # integration agent: scope check on PR files + final merge into integration branch
+        pr_files = gh.pr_files(num)
+        pr_extra = [f for f in pr_files if f not in allowed and not f.startswith("node_modules")]
+        if pr_extra:
+            cleanup_worktree(dt, sid, wt, branch)
+            return {"id": tid, "status": "PR_OUT_OF_SCOPE", "pr": num, "extra": pr_extra}
+        # capture hashes BEFORE merge (on the agent branch —squash-merge makes IB HEAD match these)
+        file_hashes = _wt_file_hashes(dt, sid, wt, allowed)
+        import hashlib, json as _json
+        allowed_files_hash = hashlib.sha1(_json.dumps(sorted(allowed)).encode()).hexdigest()
         try:
             merged = gh.merge_pr(num, "squash")
         except Exception as e:
@@ -430,12 +469,13 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
 
     # cleanup worktree
     dt.exec(sid, f"cd ~/babylon-cinema && git worktree remove --force {wt} 2>/dev/null; "
-                 f"git branch -D {branch} 2>/dev/null; git worktree prune", timeout=60)
-    return {"id": tid, "status": "MERGED", "pr": num, "iters": i, "model": model}
+                 f"git branch -D -f {branch} 2>/dev/null; git worktree prune", timeout=60)
+    return {"id": tid, "status": "MERGED", "pr": num, "iters": i, "model": model,
+            "file_hashes": file_hashes, "allowed_files_hash": allowed_files_hash}
 
 
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 STATE_DIR = "state"
 
@@ -578,6 +618,16 @@ def lane_key_func(model):
     _signal.signal(_signal.SIGTERM, _sigint)
 
     ib = cfg["integration_branch"]
+
+    state_lock_f = f"{STATE_DIR}/.{ib.replace('/', '_')}.lock"
+    os.makedirs(STATE_DIR, exist_ok=True)
+    state_lock_fd = open(state_lock_f, "w")
+    try:
+        fcntl.flock(state_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log(f"ERROR: another orchestrator instance is running (lock held on {state_lock_f})")
+        sys.exit(1)
+
     concurrency = cfg.get("max_concurrent", 45)
     per_lane_max = cfg.get("per_lane_max", 15)   # at most N concurrent per worker lane
     global_deadline = cfg.get("global_deadline_s", 7200)
@@ -586,8 +636,6 @@ def lane_key_func(model):
     t_batch = time.time()
 
     lane_key = lane_key_func
-    # one semaphore per lane -> caps concurrency PER MODEL (e.g. <=15 codex at once, the
-    # ChatGPT-safe max). With 3 lanes that's <=45 total; extra tasks queue and wait.
     lane_sems = {}
 
     pool = cfg.get("pool_sids") or ([cfg["golden_sid"]] if cfg.get("golden_sid") else [])
@@ -607,15 +655,19 @@ def lane_key_func(model):
     cc, oc, ght = claude_credentials_b64(), opencode_auth_b64(), gh_token()
 
     def provision_fresh():
-        # leave it RUNNING (stop_when_done=False) — no stop/start race that Daytona
-        # could delete into; inject creds and use immediately.
-        with provision_lock:
+        acquired = provision_lock.acquire(timeout=300)
+        if not acquired:
+            log("provision_lock timeout (300s) — INFRA_DEAD")
+            raise RuntimeError("INFRA_DEAD: provision_lock timeout 300s")
+        try:
             nsid = provision_one(dt, ght, cc, oc, "[heal] ", stop_when_done=False)
             inject_into_sandbox(dt, nsid, ght)
             with metrics_lock:
                 metrics["provisioned"] += 1
             log(f"provisioned fresh sandbox {nsid[:8]}")
             return nsid
+        finally:
+            provision_lock.release()
 
     # RESUME: skip done; also merge any orphaned open PR from a prior crash
     pending = []
@@ -685,8 +737,10 @@ def lane_key_func(model):
         def worker(task):
             if _stop.is_set() or time.time() - t_batch > global_deadline:
                 return {"id": task["id"], "status": "SKIPPED_DEADLINE"}
-            sem = lane_sems[lane_key(task.get("worker_model", "?"))]
-            sem.acquire()   # wait for a free slot in this task's lane (<=per_lane_max)
+            entry_lane = lane_key(task.get("worker_model", "?"))
+            cur_lane = entry_lane
+            sem = lane_sems[cur_lane]
+            sem.acquire()
             try:
                 attempt = 0
                 while True:
@@ -694,35 +748,57 @@ def lane_key_func(model):
                     sid = None
                     try:
                         sid = acquire_live(dt, free, ght, provision_fresh)
-                        r = run_task(dt, gh, sid, ib, task, merge_lock)
+                        r = run_task(dt, gh, sid, ib, task, merge_lock, lane_sems, lane_key)
                         if not ephemeral and dt.is_alive(sid):
-                            free.put(sid)                 # healthy → back to pool
+                            free.put(sid)
                         elif ephemeral:
-                            try: dt.delete(sid)            # cattle → destroy
+                            try: dt.delete(sid)
                             except Exception: pass
                         break
+                    except Escalate as exc:
+                        old_lane = cur_lane
+                        new_lane = lane_key(exc.new_lane)
+                        if new_lane != old_lane:
+                            lane_sems[old_lane].release()
+                            lane_sems[new_lane].acquire()
+                            cur_lane = new_lane
+                            log(f"[{task['id']}] semaphore swapped {old_lane}->{new_lane}")
+                        spec = exc.spec
+                        continue
                     except Exception as e:
                         msg = str(e)
                         if _infra_dead(msg) and attempt <= max_retry:
                             with metrics_lock: metrics["task_retries"] += 1
                             log(f"[{task['id']}] sandbox died (attempt {attempt}) — retry on fresh")
-                            continue                       # acquire_live will heal
+                            continue
                         r = {"id": task["id"], "status": "ERROR", "error": msg}
                         log(f"[{task['id']}] ERROR {msg}")
                         if sid and not ephemeral and dt.is_alive(sid):
                             free.put(sid)
                         break
             finally:
-                sem.release()
+                lane_sems[cur_lane].release()
             with state_lock:
                 state[task["id"]] = r
-                json.dump(state, open(state_path(ib), "w"), indent=2)
+                tmp = state_path(ib) + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
+                with open(tmp, "w") as f:
+                    json.dump(state, f, indent=2)
+                os.replace(tmp, state_path(ib))
             with results_lock:
                 results.append(r)
             return r
 
         with ThreadPoolExecutor(max_workers=effective) as ex:
-            list(ex.map(worker, pending))
+            futures = {ex.submit(worker, t): t for t in pending}
+            for f in as_completed(futures, timeout=global_deadline + 60):
+                try:
+                    f.result()
+                except Exception:
+                    pass
+                if time.time() - t_batch > global_deadline:
+                    for ff in futures:
+                        ff.cancel()
+                    break
     finally:
         # stop EVERY sandbox currently in the org (pool + any fresh-provisioned heals that
         # aren't tracked locally) so billing never leaks after a run.
@@ -735,7 +811,12 @@ def lane_key_func(model):
             log(f"WARN final stop sweep: {e}")
 
     with state_lock:
-        json.dump(state, open(state_path(ib), "w"), indent=2)
+        tmp = state_path(ib) + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, state_path(ib))
+    fcntl.flock(state_lock_fd, fcntl.LOCK_UN)
+    state_lock_fd.close()
 
     print("\n==== RESULTS ====")
     merged = sum(1 for r in results if r.get("status") == "MERGED")
