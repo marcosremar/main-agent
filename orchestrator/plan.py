@@ -48,7 +48,10 @@ verifiable tasks that can each be done by one agent touching ~1-3 files.
 OBJECTIVE: {objective}
 
 Each task MUST be independent (no two tasks edit the same file) and verifiable by a command.
-Do NOT reuse any of these existing task ids: {avoid}
+Spread the worker_model lanes EVENLY across "dumont", "codex", and "claude" (roughly a
+third each). The orchestrator runs at most 15 tasks PER LANE concurrently (45 total) and
+queues the rest, and each task is independently validated by Opus — so balanced lanes
+maximize throughput. Do NOT reuse any of these existing task ids: {avoid}
 
 Output ONLY a JSON array (no prose, no markdown fence) of objects with EXACTLY these keys:
   "id": kebab-case unique id (not in the avoid list)
@@ -106,8 +109,8 @@ def main():
     out = sys.argv[3] if len(sys.argv) > 3 else "config-planned.json"
     print(f"planning ({n}) for: {objective}")
     tasks = run_planner(objective, n)
-    cfg = {"integration_branch": IB, "max_concurrent": min(15, len(tasks)),
-           "global_deadline_s": 5400, "pool_sids": [],
+    cfg = {"integration_branch": IB, "max_concurrent": 45, "per_lane_max": 15,
+           "global_deadline_s": 7200, "pool_sids": [],
            "objective": objective, "planner": "opus",   # surfaced in the dashboard
            "tasks": tasks}
     json.dump(cfg, open(out, "w"), indent=2)

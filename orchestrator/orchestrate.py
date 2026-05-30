@@ -378,11 +378,21 @@ def main():
     dt = Daytona(key)
     gh = GitHub(gh_token())
     ib = cfg["integration_branch"]
-    concurrency = cfg.get("max_concurrent", 15)
+    concurrency = cfg.get("max_concurrent", 45)
+    per_lane_max = cfg.get("per_lane_max", 15)   # at most N concurrent per worker lane
     global_deadline = cfg.get("global_deadline_s", 7200)
     ephemeral = cfg.get("ephemeral", False)      # cattle: destroy sandbox after each task
     max_retry = cfg.get("task_retries", 3)       # retry a task on sandbox-death
     t_batch = time.time()
+
+    def lane_key(model):
+        for k in ("claude", "codex", "dumont", "minimax"):
+            if str(model).startswith(k):
+                return k
+        return str(model)
+    # one semaphore per lane -> caps concurrency PER MODEL (e.g. <=15 codex at once, the
+    # ChatGPT-safe max). With 3 lanes that's <=45 total; extra tasks queue and wait.
+    lane_sems = {}
 
     pool = cfg.get("pool_sids") or ([cfg["golden_sid"]] if cfg.get("golden_sid") else [])
     cloud = [t for t in cfg["tasks"] if t.get("location", "cloud") == "cloud"]
@@ -437,35 +447,46 @@ def main():
                 log(f"pool sandbox ready {sid[:8]}")
             except Exception as e:
                 log(f"WARN pool sandbox {sid[:8]} unavailable: {e}")
-        effective = min(concurrency, max(1, len(pending)))
+        # build a semaphore per lane present in the pending work (cap = per_lane_max)
+        for t in pending:
+            lk = lane_key(t.get("worker_model", "?"))
+            lane_sems.setdefault(lk, threading.Semaphore(per_lane_max))
+        # thread pool can hold all lanes' caps at once; the per-lane semaphores throttle.
+        effective = min(concurrency, len(lane_sems) * per_lane_max, max(1, len(pending)))
+        log(f"lanes: {[ (k, per_lane_max) for k in lane_sems ]} | pool={len(live_sids)} | effective={effective}")
 
         def worker(task):
             if time.time() - t_batch > global_deadline:
                 return {"id": task["id"], "status": "SKIPPED_DEADLINE"}
-            attempt = 0
-            while True:
-                attempt += 1
-                sid = None
-                try:
-                    sid = acquire_live(dt, free, ght, provision_fresh)
-                    r = run_task(dt, gh, sid, ib, task, merge_lock)
-                    if not ephemeral and dt.is_alive(sid):
-                        free.put(sid)                 # healthy → back to pool
-                    elif ephemeral:
-                        try: dt.delete(sid)            # cattle → destroy
-                        except Exception: pass
-                    break
-                except Exception as e:
-                    msg = str(e)
-                    if _infra_dead(msg) and attempt <= max_retry:
-                        with metrics_lock: metrics["task_retries"] += 1
-                        log(f"[{task['id']}] sandbox died (attempt {attempt}) — retry on fresh")
-                        continue                       # acquire_live will heal
-                    r = {"id": task["id"], "status": "ERROR", "error": msg}
-                    log(f"[{task['id']}] ERROR {msg}")
-                    if sid and not ephemeral and dt.is_alive(sid):
-                        free.put(sid)
-                    break
+            sem = lane_sems[lane_key(task.get("worker_model", "?"))]
+            sem.acquire()   # wait for a free slot in this task's lane (<=per_lane_max)
+            try:
+                attempt = 0
+                while True:
+                    attempt += 1
+                    sid = None
+                    try:
+                        sid = acquire_live(dt, free, ght, provision_fresh)
+                        r = run_task(dt, gh, sid, ib, task, merge_lock)
+                        if not ephemeral and dt.is_alive(sid):
+                            free.put(sid)                 # healthy → back to pool
+                        elif ephemeral:
+                            try: dt.delete(sid)            # cattle → destroy
+                            except Exception: pass
+                        break
+                    except Exception as e:
+                        msg = str(e)
+                        if _infra_dead(msg) and attempt <= max_retry:
+                            with metrics_lock: metrics["task_retries"] += 1
+                            log(f"[{task['id']}] sandbox died (attempt {attempt}) — retry on fresh")
+                            continue                       # acquire_live will heal
+                        r = {"id": task["id"], "status": "ERROR", "error": msg}
+                        log(f"[{task['id']}] ERROR {msg}")
+                        if sid and not ephemeral and dt.is_alive(sid):
+                            free.put(sid)
+                        break
+            finally:
+                sem.release()
             with state_lock:
                 state[task["id"]] = r
                 json.dump(state, open(state_path(ib), "w"), indent=2)
