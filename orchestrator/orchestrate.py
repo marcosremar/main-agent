@@ -14,6 +14,7 @@ Usage:
 import base64
 import json
 import os
+import signal as _signal
 import sys
 import time
 
@@ -235,6 +236,8 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     branch = f"agent/{tid}"
     wt = f"/home/daytona/wt/{tid}"
     allowed = task["allowed_files"]
+    if not allowed:
+        return {"id": tid, "status": "ERROR", "error": "allowed_files is empty — nothing to commit"}
     # worker_model is assigned PER TASK by the brain, by difficulty (Opus for hard,
     # MiniMax for well-specified). It is NOT a blanket MiniMax default; MINIMAX here is
     # only the fallback when a task spec omits an explicit classification.
@@ -285,7 +288,7 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     i = 0
     last_out = ""           # for no-progress detection
     stuck = 0
-    no_progress_limit = task.get("no_progress_limit", 4)
+    no_progress_limit = task.get("no_progress_limit", 6)
     last_fail_out = ""      # recorded into the failure result for the dashboard
     for i in range(1, max_iters + 1):
         if time.time() - t_task > task_budget:
@@ -321,10 +324,14 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
         # error-bearing lines (stripped of volatile numbers) — same failure repeating N times
         # means the worker isn't converging, so abort early and let the brain replan.
         sig = error_signature(out)
-        if sig and sig == last_out:
-            stuck += 1
+        if sig:  # only track no-progress for known error patterns
+            if sig == last_out:
+                stuck += 1
+            else:
+                stuck = 0; last_out = sig
+        # empty sig = silent failure (OOM, segfault); reset stuck so we don't abort prematurely
         else:
-            stuck = 0; last_out = sig
+            stuck = 0
         if stuck >= no_progress_limit:
             log(f"[{tid}] same error {no_progress_limit}x — stuck, stopping")
             cleanup_worktree(dt, sid, wt, branch)
@@ -339,8 +346,9 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
                 log(f"[{tid}] escalating {model} -> claude (repeated verify fail)")
                 model = OPUS
                 stuck = 0; last_out = ""   # give claude a fresh no-progress budget
+                log(f"[{tid}] WARN: lane semaphore mismatch on escalation — claude lane cap not enforced for this task")
         spec = (task["spec"] + "\n\nVERIFIER FEEDBACK — previous attempt FAILED. "
-                "Fix it. The verification command output was:\n" + out[-1500:])
+                "Fix it. The verification command output was:\n" + out[-4000:])
     if not passed:
         cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "FAILED_MAX_ITERS", "iters": max_iters, "model": model,
@@ -360,16 +368,17 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock=None):
     # reject the push as non-fast-forward -> a silent push failure later surfaces as a confusing
     # PR-create "head invalid" 422. Echo a sentinel so we can confirm the push actually landed.
     _, pushout = dt.exec(sid, f"cd {wt} && git add -- {add_list} && "
-                 f"git commit -q -m {json.dumps(task['commit'])} && "
+                 f"{{ git commit -q -m {json.dumps(task['commit'])} || true; }} && "
                  f"git push -u origin +{branch} 2>&1 && echo PUSH_OK || echo PUSH_FAIL", timeout=120)
     if "PUSH_OK" not in pushout:
         cleanup_worktree(dt, sid, wt, branch)
         return {"id": tid, "status": "ERROR", "error": "git push failed: " + pushout[-300:]}
 
     # open PR vs integration branch (NOT main)
+    verify_display = task.get("verify_cmd") or f"verifier:{task.get('verifier','llm')}"
     pr = gh.create_pr(head=branch, base=integration_branch,
                       title=task["commit"],
-                      body=f"Automated by orchestrator. Task `{tid}`.\nVerify: `{task['verify_cmd']}`")
+                      body=f"Automated by orchestrator. Task `{tid}`.\nVerify: `{verify_display}`")
     num = pr["number"]
     log(f"[{tid}] PR #{num} -> {integration_branch}")
 
@@ -421,7 +430,8 @@ def already_done(gh, ib, task, state):
     if state.get(task["id"], {}).get("status") == "MERGED":
         return True
     try:
-        if task["allowed_files"] and all(gh.file_exists(f, ib) for f in task["allowed_files"]):
+        files = task["allowed_files"]
+        if files and all(gh.file_exists(f, ib) for f in files):
             return True
     except Exception:
         pass
@@ -439,13 +449,24 @@ def resume_merge_if_open(gh, ib, task, merge_lock):
             with (merge_lock or contextlib.nullcontext()):
                 gh.merge_pr(pr["number"], "squash")
             return {"id": task["id"], "status": "MERGED", "pr": pr["number"], "resumed": "pr"}
+    except RuntimeError as e:
+        if "404" in str(e) or "not found" in str(e).lower():
+            pass  # PR gone — fine
+        else:
+            log(f"WARN resume_merge_if_open [{task['id']}]: {e}")
     except Exception:
         pass
     return None
 
 
 def _infra_dead(err: str) -> bool:
-    return ("not running" in err) or ("not found" in err) or ("HTTP 404" in err)
+    el = err.lower()
+    return (
+        "sandbox" in el and ("not running" in el or "not found" in el)
+    ) or ("http 404" in el and "sandbox" in el) or (
+        # daytona returns these for genuinely missing/stopped sandboxes
+        "not found" in el and any(x in el for x in ("sandbox", "toolbox", "workspace"))
+    ) or "http 404" in el
 
 
 def acquire_live(dt, free, ght, provision_fresh):
@@ -467,11 +488,25 @@ def main():
     import queue
     import os
     cfg = json.load(open(sys.argv[1]))
+    # validate required fields up front — a missing key deep in the run produces confusing errors
+    for _req_key in ("integration_branch", "tasks"):
+        if _req_key not in cfg:
+            raise SystemExit(f"config missing required field: {_req_key!r}")
+    if not isinstance(cfg["tasks"], list):
+        raise SystemExit("config 'tasks' must be a list")
     key = cfg.get("daytona_key") or os.environ.get("DAYTONA_API_KEY")
     if not key:
         raise SystemExit("set DAYTONA_API_KEY env var (or daytona_key in config)")
     dt = Daytona(key)
     gh = GitHub(gh_token())
+
+    _stop = threading.Event()
+    def _sigint(sig, frame):
+        log("SIGINT — stopping batch (sandboxes will be stopped in finally)")
+        _stop.set()
+    _signal.signal(_signal.SIGINT, _sigint)
+    _signal.signal(_signal.SIGTERM, _sigint)
+
     ib = cfg["integration_branch"]
     concurrency = cfg.get("max_concurrent", 45)
     per_lane_max = cfg.get("per_lane_max", 15)   # at most N concurrent per worker lane
@@ -495,6 +530,7 @@ def main():
 
     state = load_state(ib)
     state_lock = threading.Lock()
+    provision_lock = threading.Lock()
     merge_lock = threading.Lock()
     results, results_lock = [], threading.Lock()
     metrics = {"provisioned": 0, "task_retries": 0}
@@ -507,12 +543,13 @@ def main():
     def provision_fresh():
         # leave it RUNNING (stop_when_done=False) — no stop/start race that Daytona
         # could delete into; inject creds and use immediately.
-        nsid = provision_one(dt, ght, cc, oc, "[heal] ", stop_when_done=False)
-        inject_into_sandbox(dt, nsid, ght)
-        with metrics_lock:
-            metrics["provisioned"] += 1
-        log(f"provisioned fresh sandbox {nsid[:8]}")
-        return nsid
+        with provision_lock:
+            nsid = provision_one(dt, ght, cc, oc, "[heal] ", stop_when_done=False)
+            inject_into_sandbox(dt, nsid, ght)
+            with metrics_lock:
+                metrics["provisioned"] += 1
+            log(f"provisioned fresh sandbox {nsid[:8]}")
+            return nsid
 
     # RESUME: skip done; also merge any orphaned open PR from a prior crash
     pending = []
@@ -543,6 +580,12 @@ def main():
                 # itself in ~1 min instead of billing for the 120-min default. Safe mid-run:
                 # 10s exec_wait polling keeps an active sandbox's lastActivity fresh.
                 dt.set_autostop(sid, cfg.get("idle_autostop_min", 1))
+                # EPHEMERAL COPIES: destroy the sandbox a few minutes after it stops (idle, run
+                # done) so copies don't linger holding disk/quota. The golden snapshot template
+                # is untouched. -1 in config keeps a sandbox forever (warm-pool mode).
+                ad = cfg.get("copy_autodelete_min", 5)
+                if ad is not None and ad >= 0:
+                    dt.set_autodelete(sid, ad)
                 free.put(sid); live_sids.append(sid)
                 log(f"pool sandbox ready {sid[:8]}")
             except Exception as e:
@@ -556,6 +599,9 @@ def main():
             try:
                 nsid = provision_fresh()
                 dt.set_autostop(nsid, cfg.get("idle_autostop_min", 1))
+                ad = cfg.get("copy_autodelete_min", 5)
+                if ad is not None and ad >= 0:
+                    dt.set_autodelete(nsid, ad)
                 free.put(nsid); live_sids.append(nsid)
                 log(f"healed: fresh sandbox {nsid[:8]} added")
             except Exception as e2:
@@ -571,7 +617,7 @@ def main():
         log(f"lanes: {[ (k, per_lane_max) for k in lane_sems ]} | pool={len(live_sids)} | effective={effective}")
 
         def worker(task):
-            if time.time() - t_batch > global_deadline:
+            if _stop.is_set() or time.time() - t_batch > global_deadline:
                 return {"id": task["id"], "status": "SKIPPED_DEADLINE"}
             sem = lane_sems[lane_key(task.get("worker_model", "?"))]
             sem.acquire()   # wait for a free slot in this task's lane (<=per_lane_max)

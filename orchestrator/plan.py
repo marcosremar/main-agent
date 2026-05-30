@@ -60,8 +60,15 @@ def done_ids():
 
 
 def run_planner(objective: str, n: int) -> list:
-    oat = open(os.path.expanduser("~/.claude-oat-token")).read().strip()
-    avoid = ", ".join(done_ids())
+    oat_path = os.path.expanduser("~/.claude-oat-token")
+    if not os.path.exists(oat_path):
+        raise RuntimeError(
+            f"~/.claude-oat-token not found. Run: claude setup-token > ~/.claude-oat-token")
+    oat = open(oat_path).read().strip()
+    all_done = done_ids()
+    avoid = ", ".join(all_done)
+    if all_done:
+        print(f"  (avoid list: {len(all_done)} existing ids across all configs)", flush=True)
     rmctx = roadmap_context(objective)
     prompt = f"""You are a PLANNER for the babylon-cinema doctorate project. The REAL tasks
 come from the roadmap below — decompose THOSE, do not invent unrelated work.
@@ -134,28 +141,39 @@ Output the JSON array and nothing else."""
     # Have the agent WRITE the JSON to a file (avoids stdout escaping/truncation issues
     # with spec strings full of backslashes/quotes). Read+parse the file, tolerant of
     # invalid JSON escapes the model may emit (\s, \. from regex specs).
-    outfile = os.path.join(REPO, ".plan-out.json")   # inside cwd so claude can write it
+    import tempfile as _tmp
+    outfile = _tmp.mktemp(suffix="-plan-out.json", dir=os.path.join(REPO))   # inside cwd so claude can write it
     prompt += (f"\n\nDo NOT print the JSON. Instead use the Write tool to write the JSON "
                f"array to the file {outfile}. Make sure it is valid JSON (escape every "
                f"backslash inside a string as \\\\). Then stop.")
     env = dict(os.environ, CLAUDE_CODE_OAUTH_TOKEN=oat)
     if os.path.exists(outfile):
         os.remove(outfile)
-    subprocess.run(["claude", "-p", "--model", "claude-opus-4-8",
-                    "--permission-mode", "acceptEdits"],
-                   input=prompt, capture_output=True, text=True, env=env,
-                   cwd=REPO, timeout=600)
+    try:
+        result = subprocess.run(["claude", "-p", "--model", "claude-opus-4-8",
+                        "--permission-mode", "acceptEdits"],
+                       input=prompt, capture_output=True, text=True, env=env,
+                       cwd=REPO, timeout=600)
+        if result.returncode != 0:
+            print(f"WARN planner exited {result.returncode}: {result.stderr[-300:]}", flush=True)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("planner timed out after 600s — increase timeout or simplify objective")
     if not os.path.exists(outfile):
         raise RuntimeError("planner did not write the output file")
     raw = open(outfile).read()
-    m = re.search(r"\[.*\]", raw, re.DOTALL)
-    raw = m.group(0) if m else raw
+    start = raw.find("[")
+    end = raw.rfind("]")
+    raw = raw[start:end+1] if start != -1 and end != -1 else raw
     try:
         tasks = json.loads(raw)
     except json.JSONDecodeError:
         # salvage: escape backslashes that aren't valid JSON escapes
         fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', raw)
         tasks = json.loads(fixed)
+    try:
+        os.remove(outfile)
+    except OSError:
+        pass
     avoidset = set(done_ids())
     clean = []
     for t in tasks:

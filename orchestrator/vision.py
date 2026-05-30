@@ -54,6 +54,8 @@ def judge_image(image_path: str, criteria: str, model: str = None,
     """Return {ok, score, verdict, raw}. `detail='low'` keeps image tokens (and cost) down."""
     url, key, default_model = _provider()
     model = model or default_model
+    import mimetypes as _mt
+    _mime = _mt.guess_type(image_path)[0] or "image/png"
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
     system = (
@@ -72,7 +74,7 @@ def judge_image(image_path: str, criteria: str, model: str = None,
             {"role": "user", "content": [
                 {"type": "text", "text": user},
                 {"type": "image_url",
-                 "image_url": {"url": f"data:image/png;base64,{b64}", "detail": detail}},
+                 "image_url": {"url": f"data:{_mime};base64,{b64}", "detail": detail}},
             ]},
         ],
         "max_tokens": 500,
@@ -90,11 +92,15 @@ def judge_image(image_path: str, criteria: str, model: str = None,
             if e.code in (429, 502, 503) and attempt < 3:
                 time.sleep(3 * (attempt + 1)); continue
             raise RuntimeError(f"vision API HTTP {e.code}: {e.read().decode()[:200]}")
+    if resp is None:
+        raise RuntimeError("vision API: all retry attempts failed — no response received")
     raw = resp["choices"][0]["message"]["content"]
     ok = bool(re.search(r"VERDICT:\s*PASS\b", raw))
     m = re.search(r"SCORE:\s*(\d+)", raw)
     score = int(m.group(1)) if m else None
-    return {"ok": ok, "score": score, "verdict": raw.strip().splitlines()[-1], "raw": raw}
+    verdict_line = next((l.strip() for l in reversed(raw.strip().splitlines())
+                         if l.strip().startswith("VERDICT:")), raw.strip().splitlines()[-1])
+    return {"ok": ok, "score": score, "verdict": verdict_line, "raw": raw}
 
 
 if __name__ == "__main__":

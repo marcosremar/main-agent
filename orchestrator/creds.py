@@ -27,14 +27,19 @@ def claude_credentials_b64() -> str:
         if isinstance(o, dict):
             o.pop("refreshToken", None)
         raw = json.dumps(d)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"WARN claude_credentials_b64: could not strip refreshToken ({e}) — "
+              f"concurrent workers may hit token rotation races", flush=True)
     return base64.b64encode(raw.encode()).decode()
 
 
 def opencode_auth_b64(path="~/.local/share/opencode/auth.json") -> str:
     import os
-    with open(os.path.expanduser(path), "rb") as f:
+    p = os.path.expanduser(path)
+    if not os.path.exists(p):
+        print(f"WARN opencode_auth_b64: {p} not found — opencode lane will be unavailable", flush=True)
+        return ""
+    with open(p, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 
@@ -59,6 +64,8 @@ def claude_oat_token(path="~/.claude-oat-token") -> str:
     p = os.path.expanduser(path)
     if os.path.exists(p):
         return open(p).read().strip()
+    print(f"WARN claude_oat_token: {p} not found — workers will use short-lived keychain "
+          f"creds (may 401 mid-session). Run: claude setup-token > ~/.claude-oat-token", flush=True)
     return ""
 
 
@@ -105,8 +112,8 @@ def inject_into_sandbox(dt, sid: str, gh: str):
         f"echo {cc} | base64 -d > ~/.claude/.credentials.json && "
         f"echo {oc} | base64 -d > ~/.local/share/opencode/auth.json && "
         "chmod 600 ~/.claude/.credentials.json ~/.local/share/opencode/auth.json && "
-        'git config --global user.email "marcosremar14@gmail.com" && '
-        'git config --global user.name "babylon-cinema agent" && '
+        'git config --global user.email "marcosremar14@gmail.com"; '
+        'git config --global user.name "babylon-cinema agent"; '
         "git config --global credential.helper store && "
         f"printf 'https://x-access-token:{gh}@github.com\\n' > ~/.git-credentials && "
         "chmod 600 ~/.git-credentials && echo creds-injected")

@@ -18,18 +18,21 @@ from creds import claude_credentials_b64, opencode_auth_b64, gh_token
 
 import os
 KEY = os.environ.get("DAYTONA_API_KEY", "")
-BRANCH = "feat/city-pedestrian-population"
-# prebuilt dumont linux-x64 binary (release asset on the private dumont repo)
-DUMONT_ASSET = "https://api.github.com/repos/marcosremar/dumont-code-agent/releases/assets/433362658"
+BRANCH = os.environ.get("GOLDEN_BRANCH", "feat/city-pedestrian-population")
+# override with DUMONT_ASSET_URL env var when the release asset ID changes
+DUMONT_ASSET = os.environ.get(
+    "DUMONT_ASSET_URL",
+    "https://api.github.com/repos/marcosremar/dumont-code-agent/releases/assets/433362658"
+)
 SPARSE = "examples/game-engine src/game src/game-engine scripts/qa test package.json package-lock.json vitest.config.ts tsconfig.json"
 
 
-def provision_one(dt, gh, cc, oc, tag="", stop_when_done=True):
+def provision_one(dt, gh, cc, oc, tag="", stop_when_done=True, snapshot="daytona-medium"):
     """Provision one sandbox into a fully-ready golden; return its sid. Reusable for pools.
 
     stop_when_done=False leaves it RUNNING for immediate use (avoids a stop/start race
     where Daytona may delete the sandbox in between)."""
-    sb = dt.create(auto_stop=120)
+    sb = dt.create(auto_stop=120, snapshot=snapshot)  # 8G disk preset (vs 3G default)
     sid = sb["id"]
     dt.start(sid)
     print(f"{tag}sid {sid}")
@@ -92,7 +95,7 @@ def main():
             except Exception as e: print("  warn", e)
 
     print("creating sandbox...")
-    sb = dt.create(auto_stop=120)   # 2h idle window during provisioning
+    sb = dt.create(auto_stop=120, snapshot="daytona-medium")   # 8G disk; 2h idle window
     sid = sb["id"]
     dt.start(sid)
     print("sid", sid)

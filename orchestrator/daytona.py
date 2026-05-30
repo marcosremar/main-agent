@@ -6,6 +6,7 @@ Hard-won lessons baked in:
 - Default sandbox disk is 3G, so callers must keep the working tree small (sparse clone).
 """
 import json
+import random
 import time
 import urllib.request
 import urllib.error
@@ -35,14 +36,14 @@ class Daytona:
                 # retry transient server errors; surface client errors (4xx) immediately
                 if code in (502, 503, 504, 429) and attempt < retries - 1:
                     last = RuntimeError(f"{method} {path} -> HTTP {code}: {msg}")
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(min(30, 2 ** (attempt + 1)) + random.uniform(0, 1))
                     continue
                 raise RuntimeError(f"{method} {path} -> HTTP {code}: {msg}")
             except (urllib.error.URLError, TimeoutError, OSError) as e:
                 # network/timeout — retry with backoff
                 last = RuntimeError(f"{method} {path} -> {type(e).__name__}: {e}")
                 if attempt < retries - 1:
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(min(30, 2 ** (attempt + 1)) + random.uniform(0, 1))
                     continue
                 raise last
         raise last
@@ -51,8 +52,25 @@ class Daytona:
     def list(self):
         return self._req("GET", "/sandbox").get("items", [])
 
-    def create(self, auto_stop=30):
-        return self._req("POST", "/sandbox", {"autoStopInterval": auto_stop})
+    def create(self, auto_stop=30, snapshot=None, labels=None):
+        # resources (cpu/mem/DISK) are fixed by the snapshot, not settable per-sandbox. The
+        # default snapshot is only 3G disk — too tight for .git(1.2G)+node_modules(808M)+worktree.
+        # `daytona-medium` is an 8G/2cpu preset; pass snapshot="daytona-medium" for headroom.
+        body = {"autoStopInterval": auto_stop}
+        if snapshot:
+            body["snapshot"] = snapshot
+        # tag copies with the owning project/agent so they're identifiable in the Daytona UI
+        body["labels"] = {"project": "babylon-cinema", "agent": "main", **(labels or {})}
+        return self._req("POST", "/sandbox", body)
+
+    def set_autodelete(self, sid: str, minutes: int):
+        """Minutes after a sandbox STOPS before Daytona destroys it (-1 = never). Makes job
+        COPIES ephemeral (cattle): once a run finishes and the sandbox idles->stops, it's gone,
+        so disk/quota isn't held. The golden SNAPSHOT template is separate and unaffected."""
+        try:
+            self._req("POST", f"/sandbox/{sid}/autodelete/{minutes}")
+        except Exception:
+            pass
 
     def set_autostop(self, sid: str, minutes: int):
         """Idle minutes before Daytona auto-stops the sandbox (stopped = $0, disk kept,
@@ -61,8 +79,8 @@ class Daytona:
         fires once the sandbox is genuinely idle (task done)."""
         try:
             self._req("POST", f"/sandbox/{sid}/autostop/{minutes}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"WARN set_autostop {sid[:8]}: {e}", flush=True)
 
     def get(self, sid: str):
         return self._req("GET", f"/sandbox/{sid}")
@@ -90,16 +108,19 @@ class Daytona:
     def delete(self, sid: str):
         self._req("DELETE", f"/sandbox/{sid}?force=true")
 
-    def backup(self, sid: str):
+    def backup(self, sid: str, timeout=300):
         self._req("POST", f"/sandbox/{sid}/backup")
+        t0 = time.time()
         while self.get(sid).get("backupState") not in ("Completed", "None"):
+            if time.time() - t0 > timeout:
+                raise TimeoutError(f"backup {sid[:8]} not completed after {timeout}s")
             time.sleep(3)
 
     def is_alive(self, sid: str) -> bool:
-        """True if the sandbox still exists (Daytona deletes them under load)."""
+        """True if the sandbox exists and is not in an error state."""
         try:
-            self.get(sid)
-            return True
+            s = self.get(sid).get("state", "")
+            return s != "error"
         except RuntimeError as e:
             if "404" in str(e):
                 return False
@@ -117,9 +138,14 @@ class Daytona:
 
     def _wait_state(self, sid: str, target: str, timeout=120):
         t0 = time.time()
-        while self.state(sid) != target:
+        while True:
             if time.time() - t0 > timeout:
                 raise TimeoutError(f"{sid} not {target} after {timeout}s")
+            try:
+                if self.state(sid) == target:
+                    return
+            except RuntimeError:
+                pass  # transient API error — keep polling
             time.sleep(1)
 
     # --- exec ---
@@ -187,7 +213,8 @@ class Daytona:
             # last token from `wc -c` is the current byte count; growth resets the stall clock
             try:
                 size = int(out.strip().split()[-1])
-                if size != last_size:
+                if size == 0 or size != last_size:
+                    # reset stall clock on any growth OR while log is empty (worker still starting)
                     last_size, last_growth = size, time.time()
             except (ValueError, IndexError):
                 pass

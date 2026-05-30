@@ -16,31 +16,71 @@ class GitHub:
         self.token = token
         self.repo = repo
 
-    def _req(self, method: str, path: str, body=None):
+    def _req(self, method: str, path: str, body=None, retries=4):
+        import time, random
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(
-            f"{API}{path}", data=data, method=method,
-            headers={"Authorization": f"Bearer {self.token}",
-                     "Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                raw = r.read().decode()
-                return json.loads(raw) if raw.strip() else {}
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"{method} {path} -> HTTP {e.code}: {e.read().decode()[:400]}")
+        last = None
+        for attempt in range(retries):
+            req = urllib.request.Request(
+                f"{API}{path}", data=data, method=method,
+                headers={"Authorization": f"Bearer {self.token}",
+                         "Accept": "application/vnd.github+json",
+                         "X-GitHub-Api-Version": "2022-11-28"})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    raw = r.read().decode()
+                    return json.loads(raw) if raw.strip() else {}
+            except urllib.error.HTTPError as e:
+                code = e.code
+                body_txt = e.read().decode()[:400]
+                # 403 with rate-limit header or "API rate limit" = rate-limited, retry
+                if code == 403 and "rate limit" in body_txt.lower() and attempt < retries - 1:
+                    wait = min(60, 10 * (attempt + 1))
+                    time.sleep(wait + random.uniform(0, 2))
+                    last = RuntimeError(f"{method} {path} -> HTTP {code} (rate-limited): {body_txt}")
+                    continue
+                if code in (502, 503, 504) and attempt < retries - 1:
+                    time.sleep(min(30, 2 ** (attempt + 1)) + random.uniform(0, 1))
+                    last = RuntimeError(f"{method} {path} -> HTTP {code}: {body_txt}")
+                    continue
+                raise RuntimeError(f"{method} {path} -> HTTP {code}: {body_txt}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = RuntimeError(f"{method} {path} -> {type(e).__name__}: {e}")
+                if attempt < retries - 1:
+                    time.sleep(min(30, 2 ** (attempt + 1)) + random.uniform(0, 1))
+                    continue
+                raise last
+        raise last
 
     def create_pr(self, head: str, base: str, title: str, body: str) -> dict:
         return self._req("POST", f"/repos/{self.repo}/pulls",
                          {"head": head, "base": base, "title": title, "body": body})
 
     def merge_pr(self, number: int, method="squash") -> dict:
-        return self._req("PUT", f"/repos/{self.repo}/pulls/{number}/merge",
-                         {"merge_method": method})
+        try:
+            return self._req("PUT", f"/repos/{self.repo}/pulls/{number}/merge",
+                             {"merge_method": method})
+        except RuntimeError as e:
+            msg = str(e)
+            if "405" in msg or "not mergeable" in msg.lower() or "conflict" in msg.lower():
+                raise RuntimeError(f"MERGE_CONFLICT PR#{number}: {msg}") from e
+            raise
 
     def pr_files(self, number: int) -> list[str]:
-        files = self._req("GET", f"/repos/{self.repo}/pulls/{number}/files")
-        return [f["filename"] for f in files]
+        """Return ALL changed filenames in a PR (paginated, up to 300)."""
+        files = []
+        page = 1
+        while True:
+            batch = self._req("GET", f"/repos/{self.repo}/pulls/{number}/files?per_page=100&page={page}")
+            if not batch:
+                break
+            files.extend(f["filename"] for f in batch)
+            if len(batch) < 100:
+                break
+            page += 1
+            if page > 3:  # safety: max 300 files
+                break
+        return files
 
     def file_exists(self, path: str, ref: str) -> bool:
         try:
@@ -52,7 +92,9 @@ class GitHub:
             raise
 
     def open_pr_for(self, head_branch: str, base: str) -> dict | None:
-        # head must be qualified owner:branch for cross-fork, here same-repo so owner:branch
         owner = self.repo.split("/")[0]
         prs = self._req("GET", f"/repos/{self.repo}/pulls?state=open&head={owner}:{head_branch}&base={base}")
-        return prs[0] if prs else None
+        if not prs:
+            return None
+        # pick the newest PR if multiple exist (e.g. from retries)
+        return sorted(prs, key=lambda p: p["number"], reverse=True)[0]
