@@ -33,6 +33,8 @@ class GitHub:
             except urllib.error.HTTPError as e:
                 code = e.code
                 body_txt = e.read().decode()[:400]
+                if code == 401:
+                    raise RuntimeError(f"{method} {path} -> HTTP 401 (token expired/unauthorized): {body_txt}") from e
                 # 403 with rate-limit header or "API rate limit" = rate-limited, retry
                 if code == 403 and "rate limit" in body_txt.lower() and attempt < retries - 1:
                     wait = min(60, 10 * (attempt + 1))
@@ -78,6 +80,10 @@ class GitHub:
         while True:
             batch = self._req("GET", f"/repos/{self.repo}/pulls/{number}/files?per_page=100&page={page}")
             if not batch:
+                break
+            if not isinstance(batch, list):
+                import logging
+                logging.error(f"pr_files #{number} page {page}: expected list, got {type(batch).__name__}: {str(batch)[:200]}")
                 break
             files.extend(f["filename"] for f in batch)
             if len(batch) < 100:
