@@ -10,13 +10,16 @@ call this when the artifact actually changed; escalate to a stronger model only 
 """
 import base64
 import json
+import math
 import os
 import re
 import time
 import urllib.request
 import urllib.error
+import struct
+import shutil
 
-ENV_FILE = "/Users/marcos/projects/ai-gateway/.env"
+ENV_FILE = os.path.expanduser("~/projects/ai-gateway/.env")
 
 
 def _env(name):
@@ -32,10 +35,30 @@ def _env(name):
     return None
 
 
-# Default = OPEN-SOURCE vision model (cheap, strong). Qwen2.5-VL-72B leads open weights
-# (~70 MMMU, ~888 OCRBench) at $0.25/$0.75 per 1M. Cheaper OSS fallbacks: qwen2.5-vl-32b,
-# meta-llama/llama-3.2-11b-vision-instruct. Override per task via `vision_model`.
 DEFAULT_OSS_MODEL = "qwen/qwen2.5-vl-72b-instruct"
+
+
+def _resize_image_if_needed(image_path: str, max_bytes: int = 5 * 1024 * 1024) -> bytes:
+    """Return raw bytes for image_path, resized to ≤max_bytes if needed."""
+    with open(image_path, "rb") as f:
+        data = f.read()
+    if len(data) <= max_bytes:
+        return data
+    try:
+        import PIL.Image as _PIL
+        img = _PIL.Image.open(image_path)
+        w, h = img.size
+        scale = 0.5
+        new_w, new_h = int(w * scale), int(h * scale)
+        img = img.resize((new_w, new_h), _PIL.LANCZOS)
+        buf = __import__("io").BytesIO()
+        img.save(buf, format=img.format or "PNG")
+        resized = buf.getvalue()
+        print(f"[vision] resized {w}x{h} -> {new_w}x{new_h} ({len(data)//1024}KB -> {len(resized)//1024}KB)")
+        return resized
+    except Exception as e:
+        print(f"[vision] PIL resize failed ({e}), falling back to raw")
+        return data
 
 
 def _provider():
@@ -56,8 +79,10 @@ def judge_image(image_path: str, criteria: str, model: str = None,
     model = model or default_model
     import mimetypes as _mt
     _mime = _mt.guess_type(image_path)[0] or "image/png"
-    with open(image_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode()
+
+    raw_bytes = _resize_image_if_needed(image_path, max_bytes=5 * 1024 * 1024)
+    b64 = base64.b64encode(raw_bytes).decode()
+
     system = (
         "You are an INDEPENDENT, ADVERSARIAL visual QA judge. You did not create this "
         "image. Inspect it carefully and try to REFUTE that it meets the criteria. Be "
@@ -67,34 +92,57 @@ def judge_image(image_path: str, criteria: str, model: str = None,
         "Judge the image against EACH criterion. Then output, on the FINAL two lines ONLY:\n"
         "SCORE: <0-100>\n"
         "VERDICT: PASS   (or)   VERDICT: FAIL: <short reason>")
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "text", "text": user},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:{_mime};base64,{b64}", "detail": detail}},
-            ]},
-        ],
-        "max_tokens": 500,
-        "temperature": 0,
-    }
+
+    def _make_body(detail_val):
+        return {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:{_mime};base64,{b64}", "detail": detail_val}},
+                ]},
+            ],
+            "max_tokens": 500,
+            "temperature": 0,
+        }
+
     resp = None
+    detail_attempted = False
+    max_wait = 120
     for attempt in range(4):
+        body = _make_body(detail if not detail_attempted else "auto")
         req = urllib.request.Request(
             url, data=json.dumps(body).encode(),
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
         try:
             resp = json.loads(urllib.request.urlopen(req, timeout=90).read().decode())
-            break
         except urllib.error.HTTPError as e:
-            if e.code in (429, 502, 503) and attempt < 3:
-                time.sleep(3 * (attempt + 1)); continue
-            raise RuntimeError(f"vision API HTTP {e.code}: {e.read().decode()[:200]}")
+            body_text = e.read().decode()[:200]
+            if e.code == 400 and not detail_attempted:
+                detail_attempted = True
+                time.sleep(1)
+                continue
+            if e.code == 429 and attempt < 3:
+                wait = min(max_wait, 2 ** attempt * 5)
+                time.sleep(wait)
+                continue
+            if e.code in (502, 503) and attempt < 3:
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise RuntimeError(f"vision API HTTP {e.code}: {body_text}")
+        break
+
     if resp is None:
         raise RuntimeError("vision API: all retry attempts failed — no response received")
-    raw = resp["choices"][0]["message"]["content"]
+
+    choice = resp["choices"][0]
+    finish_reason = choice.get("finish_reason", "")
+    if finish_reason == "length":
+        raise RuntimeError("vision API response truncated (finish_reason=length); increase max_tokens or reduce image size")
+
+    raw = choice["message"]["content"]
     ok = bool(re.search(r"VERDICT:\s*PASS\b", raw))
     m = re.search(r"SCORE:\s*(\d+)", raw)
     score = int(m.group(1)) if m else None
