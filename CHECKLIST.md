@@ -1,8 +1,35 @@
 # CHECKLIST — babylon-cinema
 
 Living task tracker. `[ ]` todo · `[~]` in progress · `[x]` done (date it).
-Read at session start. Update continuously. A task is `[x]` only after verify
-(pillar 4; engine/runtime → green on browser + macOS + iPhone).
+Read at session start. A task is `[x]` only after verify (pillar 4).
+
+> **PER-TASK status is now LIVE in the dashboard** → http://127.0.0.1:8787 (grouped by
+> objective, with status filter). This CHECKLIST tracks PHASE-level progress; the dashboard
+> tracks individual agent tasks. Failed tasks are NOT removed — re-run the config (resume
+> skips merged, retries failures) for infra errors; regenerate via the planner for weak specs.
+
+## Orchestration system (built 2026-05-29/30) — DONE
+- [x] Daytona sandbox pipeline: worktree → worker → verify → PR → integration merge (main protected)
+- [x] 4 worker lanes: Claude/Opus, Codex/gpt-5.3-codex-spark, Dumont/MiniMax-M2.7, (OpenCode retired)
+- [x] Opus ALWAYS validates (independent adversarial check on every task)
+- [x] Robustness: resume journal, self-heal pool, reaper, retries, no-progress stop, finally-stop
+- [x] Vision verifier (Qwen2.5-VL OSS) for fuzzy/visual criteria
+- [x] Planner agent (plan.py): Opus reads repo → decomposes objective into grounded task specs
+- [x] Live dashboard (Tailwind, plan groups, status filter, prompt view) as a LaunchAgent
+- [x] Daytona Tier 2 (100 vCPU); concurrency validated to 15 per lane
+- [x] Claude auth via setup-token (CLAUDE_CODE_OAUTH_TOKEN) — fixes mid-session 401
+
+## Delivered work (QA detectors — ROADMAP epic #26 family + oralTaskGraph integrity)
+- [x] ~30 detector PRs merged into integration/agent-pipeline-test (tested + Opus-validated)
+- [ ] ~19 tasks not merged (mostly retryable infra ERROR/WORKTREE; ~5 weak specs to regenerate)
+      → see dashboard "⏳ Em andamento" filter for the exact remaining list
+
+## NEXT — real roadmap phases (NOT started; need planner-driven, sequenced)
+- [ ] Fase 1 (CRITICAL): LLM in NPC + voice→action (ROADMAP 14, 101-110)
+- [ ] Fase 2: cidade do cotidiano end-to-end (Casa→Padaria, 13 scenarios)
+- [ ] Fase 3: real pedagogy scoring · Fase 4: Classroom · Fase 5: QA visual/linguistic
+- [ ] Fase 6 (Mac-only): iPhone/Babylon-Native, voice on-device · Fase 7: master scenario #220
+- [ ] Promote integration branch → main (human-reviewed, per phase)
 
 ## Setup
 - [x] Create brain CLAUDE.md with objective, pillars, rules (2026-05-29)
