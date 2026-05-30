@@ -1,0 +1,192 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 15,
+  "global_deadline_s": 5000,
+  "pool_sids": [
+    "9ce628d5-b8c4-4e9b-8ab9-7516db0eab1e",
+    "8d600d12-c5b1-44b0-8c01-16d9ee484a44",
+    "2cddede0-8d31-4e71-a72e-18d9989925a8",
+    "914da595-5a26-4be5-a476-3c99cd1cdc6c",
+    "f8e1ece9-35b9-4231-bfff-a767ab5bc507",
+    "dc69e54d-32cc-4a46-84ca-5454f84dccf5",
+    "eb48b326-5688-4ef6-9883-54382580dfdd",
+    "3c746bd2-1752-45d4-820e-896c2ebc50ce",
+    "67a4f26f-a935-4850-aa1d-bb632e0292fa",
+    "de481569-52b1-408d-86a3-b60c543c3f17",
+    "25c27fbf-ec5c-4302-ab3d-6ceb71eef338",
+    "cd47fb4a-df3b-4659-ab06-6f957559b3d0",
+    "7ae38655-1103-4b28-bb7d-6fbe42c0b222",
+    "7137205a-92e8-4d15-8345-ac19348641b2",
+    "a51143a0-5c1b-4c89-ab62-6968a29587fe"
+  ],
+  "tasks": [
+    {
+      "id": "portal-target-whitespace",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 portal destination is only whitespace",
+      "allowed_files": [
+        "scripts/qa/portal-target-whitespace.ts",
+        "test/qa/portal-target-whitespace.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/portal-target-whitespace.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: portal destination is only whitespace.\n\nDETECTION RULE: portals whose destination is a non-empty string of only whitespace. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/portal-target-whitespace.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/portal-target-whitespace.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/portal-target-whitespace.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: destination '  '\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/portal-target-whitespace.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "npc-id-whitespace",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 NPC id is only whitespace",
+      "allowed_files": [
+        "scripts/qa/npc-id-whitespace.ts",
+        "test/qa/npc-id-whitespace.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/npc-id-whitespace.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: NPC id is only whitespace.\n\nDETECTION RULE: dialogue.npc config.npcId that is whitespace-only. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/npc-id-whitespace.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/npc-id-whitespace.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/npc-id-whitespace.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: npcId '  '\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/npc-id-whitespace.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "scene-displayname-whitespace",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 scene displayName is only whitespace",
+      "allowed_files": [
+        "scripts/qa/scene-displayname-whitespace.ts",
+        "test/qa/scene-displayname-whitespace.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/scene-displayname-whitespace.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: scene displayName is only whitespace.\n\nDETECTION RULE: scenes whose displayName is whitespace-only. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/scene-displayname-whitespace.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/scene-displayname-whitespace.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/scene-displayname-whitespace.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: displayName '   '\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/scene-displayname-whitespace.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "duplicate-portal-ids",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 two portals share the same id",
+      "allowed_files": [
+        "scripts/qa/duplicate-portal-ids.ts",
+        "test/qa/duplicate-portal-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-portal-ids.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: two portals share the same id.\n\nDETECTION RULE: portal ids appearing more than once. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/duplicate-portal-ids.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/duplicate-portal-ids.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/duplicate-portal-ids.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: two portals id 'p1'\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/duplicate-portal-ids.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "entity-duplicate-component-kinds",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 entity has two components of the same kind",
+      "allowed_files": [
+        "scripts/qa/entity-duplicate-component-kinds.ts",
+        "test/qa/entity-duplicate-component-kinds.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/entity-duplicate-component-kinds.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: entity has two components of the same kind.\n\nDETECTION RULE: entities with duplicate component kind. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/entity-duplicate-component-kinds.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/entity-duplicate-component-kinds.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/entity-duplicate-component-kinds.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: entity with two 'render' components\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/entity-duplicate-component-kinds.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "activity-vocab-non-string",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 requiredVocabulary contains a non-string entry",
+      "allowed_files": [
+        "scripts/qa/activity-vocab-non-string.ts",
+        "test/qa/activity-vocab-non-string.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-vocab-non-string.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: requiredVocabulary contains a non-string entry.\n\nDETECTION RULE: activities whose requiredVocabulary has a non-string item. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/activity-vocab-non-string.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/activity-vocab-non-string.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/activity-vocab-non-string.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: vocab [123]\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/activity-vocab-non-string.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "scene-portals-non-array",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 scene portals field present but not an array",
+      "allowed_files": [
+        "scripts/qa/scene-portals-non-array.ts",
+        "test/qa/scene-portals-non-array.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/scene-portals-non-array.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: scene portals field present but not an array.\n\nDETECTION RULE: scenes whose portals exists but is not an array. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/scene-portals-non-array.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/scene-portals-non-array.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/scene-portals-non-array.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: portals: 'x'\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/scene-portals-non-array.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "npc-fallback-non-array",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 NPC fallbackLines present but not an array",
+      "allowed_files": [
+        "scripts/qa/npc-fallback-non-array.ts",
+        "test/qa/npc-fallback-non-array.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/npc-fallback-non-array.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: NPC fallbackLines present but not an array.\n\nDETECTION RULE: dialogue.npc whose fallbackLines is not an array. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/npc-fallback-non-array.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/npc-fallback-non-array.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/npc-fallback-non-array.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: fallbackLines: 'hi'\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/npc-fallback-non-array.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "activity-level-lowercase",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 activity CEFR level is lowercase",
+      "allowed_files": [
+        "scripts/qa/activity-level-lowercase.ts",
+        "test/qa/activity-level-lowercase.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-level-lowercase.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: activity CEFR level is lowercase.\n\nDETECTION RULE: activities whose level matches a1-c2 but is not uppercase. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/activity-level-lowercase.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/activity-level-lowercase.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/activity-level-lowercase.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: level 'a1'\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/activity-level-lowercase.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "entity-position-non-number",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 entity position coordinate is a non-number",
+      "allowed_files": [
+        "scripts/qa/entity-position-non-number.ts",
+        "test/qa/entity-position-non-number.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/entity-position-non-number.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: entity position coordinate is a non-number.\n\nDETECTION RULE: entities whose position has a non-numeric coordinate. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/entity-position-non-number.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/entity-position-non-number.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/entity-position-non-number.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: x: 'foo'\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/entity-position-non-number.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "scene-id-non-string",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 scene id present but not a string",
+      "allowed_files": [
+        "scripts/qa/scene-id-non-string.ts",
+        "test/qa/scene-id-non-string.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/scene-id-non-string.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: scene id present but not a string.\n\nDETECTION RULE: scenes whose id exists but is not a string. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/scene-id-non-string.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/scene-id-non-string.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/scene-id-non-string.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: id: 5\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/scene-id-non-string.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    },
+    {
+      "id": "portal-target-whitespace2",
+      "worker_model": "codex",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480,
+      "commit": "feat(qa): detector \u2014 portal label is only whitespace",
+      "allowed_files": [
+        "scripts/qa/portal-target-whitespace2.ts",
+        "test/qa/portal-target-whitespace2.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/portal-target-whitespace2.spec.ts",
+      "spec": "Create a deterministic manifest detector AND its test: portal label is only whitespace.\n\nDETECTION RULE: portals whose label is a whitespace-only string. Be defensive \u2014 tolerate missing/wrong-typed fields, never throw.\n\nYou MUST create EXACTLY TWO files (both are mandatory \u2014 the task FAILS without the test):\n\n1) scripts/qa/portal-target-whitespace2.ts\n   - The detector function (per the rule) plus a CLI: `tsx scripts/qa/portal-target-whitespace2.ts <project.json>` reads\n     and JSON.parses the file, prints a JSON summary, and process.exit(1) when findings\n     are non-empty (else 0).\n   - FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL JSON shape and exact field names; match reality.\n\n2) test/qa/portal-target-whitespace2.spec.ts   \u2190 THE TEST. Do NOT finish until this file exists and passes.\n   - vitest. Import the detector from the script with a NodeNext specifier that ends in .js\n     and uses the CORRECT relative depth (test is in test/qa/, script in scripts/qa/, so\n     `../../scripts/qa/...js`).\n   - It MUST contain ALL THREE of these test cases:\n     a) POSITIVE: an inline fixture object containing EXACTLY ONE instance of the defect \u2192\n        assert the detector reports exactly that one finding (check the value precisely).\n     b) CLEAN: an inline fixture with NO defect \u2192 assert the detector reports ZERO findings\n        (proves no false positives).\n     c) ROBUSTNESS: load BOTH real example project.json files and assert the detector\n        returns the documented shape WITHOUT THROWING. Do NOT assert zero on the examples \u2014\n        they may legitimately contain real findings.\n\nPOSITIVE FIXTURE HINT: label '  '\n\nHARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain only WHY. No\nnew dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly\n`npx vitest run test/qa/portal-target-whitespace2.spec.ts` and confirming it PASSES (all 3 cases). If genuinely blocked,\nSTOP and report \u2014 do not edit unrelated files."
+    }
+  ]
+}

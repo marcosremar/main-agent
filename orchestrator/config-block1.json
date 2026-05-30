@@ -1,0 +1,173 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 20,
+  "global_deadline_s": 5400,
+  "pool_sids": [
+    "baecefe9-cee5-4e7a-bceb-a0a6fc839ae6",
+    "9a4b3a71-d866-4859-a8f0-15a4d4f21ce7",
+    "ddcc0ac3-f46d-47f5-bc56-8885c7dd24de",
+    "839e17e9-d7fb-4e19-af3b-890546c72700",
+    "caffa114-3486-41b7-9a23-d2b90dfd3995",
+    "a468c6d3-1a33-44cb-a153-b4d94ffac775",
+    "0fffda12-a542-40e0-8a1b-85cb9dbfd50e",
+    "13f78fb9-6244-4f88-ba04-fd69b22ec05b",
+    "46c20357-4046-444b-847d-c7dcca64e2c9",
+    "3ea8922c-a3e9-499d-9607-c40cfe196371",
+    "8368d6c1-bfd6-4311-9258-108d4402bd0a",
+    "86bb8869-4618-4973-b7c2-7ffe27d33daa",
+    "805dc5df-e2a2-43c6-8764-6066528ad310",
+    "7ecb052b-4319-42fd-b03d-1cde7508bd61",
+    "bee0870c-1d05-4086-8503-390a2d4ed9db",
+    "2acdaf90-90a6-4af5-a662-3634c4d7c549",
+    "8effeef2-4123-4870-ba22-a74597bfc48c",
+    "8cd908a8-6f3d-4a4d-8aff-2b4695acc748",
+    "51e6079d-c486-40da-83c8-87b4ccc9830c",
+    "ba959092-1ea3-45a7-96f5-ffd1f523562e"
+  ],
+  "tasks": [
+    {
+      "id": "duplicate-entity-ids",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 two entities in a scene share the same id",
+      "allowed_files": [
+        "scripts/qa/duplicate-entity-ids.ts",
+        "test/qa/duplicate-entity-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-entity-ids.spec.ts",
+      "spec": "Create a deterministic manifest detector: two entities in a scene share the same id. find entities[] with duplicate id within a scene. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: two entities id 'e1' in one scene -> one duplicate."
+    },
+    {
+      "id": "activity-missing-level",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 teacherActivity has no CEFR level",
+      "allowed_files": [
+        "scripts/qa/activity-missing-level.ts",
+        "test/qa/activity-missing-level.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-missing-level.spec.ts",
+      "spec": "Create a deterministic manifest detector: teacherActivity has no CEFR level. activities whose level field is missing/empty. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: an activity 'a1' with no level -> offenders ['a1']."
+    },
+    {
+      "id": "activity-empty-vocabulary",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 teacherActivity has empty requiredVocabulary",
+      "allowed_files": [
+        "scripts/qa/activity-empty-vocabulary.ts",
+        "test/qa/activity-empty-vocabulary.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-empty-vocabulary.spec.ts",
+      "spec": "Create a deterministic manifest detector: teacherActivity has empty requiredVocabulary. activities whose requiredVocabulary is missing/empty. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: activity 'a1' with requiredVocabulary [] -> ['a1']."
+    },
+    {
+      "id": "oraltask-node-missing-prompt",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 oral-task node lacks question/prompt text",
+      "allowed_files": [
+        "scripts/qa/oraltask-node-missing-prompt.ts",
+        "test/qa/oraltask-node-missing-prompt.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-node-missing-prompt.spec.ts",
+      "spec": "Create a deterministic manifest detector: oral-task node lacks question/prompt text. nodes with missing/empty question or prompt. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: a node id 'n1' with no prompt -> one finding."
+    },
+    {
+      "id": "dialogue-npc-missing-id",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 dialogue.npc component without config.npcId",
+      "allowed_files": [
+        "scripts/qa/dialogue-npc-missing-id.ts",
+        "test/qa/dialogue-npc-missing-id.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/dialogue-npc-missing-id.spec.ts",
+      "spec": "Create a deterministic manifest detector: dialogue.npc component without config.npcId. dialogue.npc components missing config.npcId. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: a dialogue.npc with no npcId -> one finding."
+    },
+    {
+      "id": "entity-references-missing-prefab",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 entity references a prefab that is not defined",
+      "allowed_files": [
+        "scripts/qa/entity-references-missing-prefab.ts",
+        "test/qa/entity-references-missing-prefab.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/entity-references-missing-prefab.spec.ts",
+      "spec": "Create a deterministic manifest detector: entity references a prefab that is not defined. entities whose prefabId is not in prefabs[]. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: entity with prefabId 'ghost' not defined -> ['ghost']."
+    },
+    {
+      "id": "duplicate-prefab-ids",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 two prefabs share the same id",
+      "allowed_files": [
+        "scripts/qa/duplicate-prefab-ids.ts",
+        "test/qa/duplicate-prefab-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-prefab-ids.spec.ts",
+      "spec": "Create a deterministic manifest detector: two prefabs share the same id. prefab ids appearing more than once. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: two prefabs id 'p1' -> ['p1']."
+    },
+    {
+      "id": "prefab-missing-components",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 prefab has no components",
+      "allowed_files": [
+        "scripts/qa/prefab-missing-components.ts",
+        "test/qa/prefab-missing-components.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/prefab-missing-components.spec.ts",
+      "spec": "Create a deterministic manifest detector: prefab has no components. prefabs whose components array is missing/empty. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: prefab 'p1' with components [] -> ['p1']."
+    },
+    {
+      "id": "activity-duplicate-vocab",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 requiredVocabulary repeats a word",
+      "allowed_files": [
+        "scripts/qa/activity-duplicate-vocab.ts",
+        "test/qa/activity-duplicate-vocab.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/activity-duplicate-vocab.spec.ts",
+      "spec": "Create a deterministic manifest detector: requiredVocabulary repeats a word. words appearing more than once in an activity requiredVocabulary. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: activity with vocab ['pain','pain'] -> dup 'pain'."
+    },
+    {
+      "id": "project-missing-locale",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 project has no top-level locale",
+      "allowed_files": [
+        "scripts/qa/project-missing-locale.ts",
+        "test/qa/project-missing-locale.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/project-missing-locale.spec.ts",
+      "spec": "Create a deterministic manifest detector: project has no top-level locale. true when project.locale is missing/empty. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: object {scenes:[]} no locale -> one finding."
+    },
+    {
+      "id": "entity-nan-position",
+      "worker_model": "dumont",
+      "max_iters": 10,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 entity transform has NaN/Infinity coordinate",
+      "allowed_files": [
+        "scripts/qa/entity-nan-position.ts",
+        "test/qa/entity-nan-position.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/entity-nan-position.spec.ts",
+      "spec": "Create a deterministic manifest detector: entity transform has NaN/Infinity coordinate. entities whose position/transform contains NaN or Infinity. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST: (a) load BOTH example projects and assert the detector RETURNS the documented array/object shape WITHOUT THROWING (do NOT assert zero findings \u2014 the examples may legitimately have some); (b) include an inline fixture that triggers EXACTLY ONE finding and assert it is detected precisely. VERIFY by running the exact verify command; if blocked, STOP and report. Fixture: entity position x=NaN -> one finding."
+    }
+  ],
+  "golden_sid": "baecefe9-cee5-4e7a-bceb-a0a6fc839ae6"
+}

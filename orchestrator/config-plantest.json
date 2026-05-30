@@ -1,0 +1,91 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 5,
+  "global_deadline_s": 5400,
+  "pool_sids": [
+    "dbabda97-3bab-4a3e-b783-92db8a7cd1c7",
+    "e61d3722-3a12-4c52-ae68-adea86cdb655",
+    "e56e694d-206f-4995-a28d-bc74def9f2e4",
+    "2ea429f0-3251-48f1-8368-1a3dfac1c094",
+    "8630c9af-30f0-4401-b4a6-d8462a8da38b"
+  ],
+  "tasks": [
+    {
+      "id": "oraltask-edge-endpoint-integrity",
+      "title": "Detect oralTaskGraph edges whose from/to are empty or reference a missing node, or self-loop",
+      "worker_model": "codex",
+      "commit": "feat(qa): add oralTaskGraph edge endpoint integrity detector",
+      "allowed_files": [
+        "scripts/qa/oraltask-edge-endpoints.ts",
+        "test/qa/oraltask-edge-endpoints.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-edge-endpoints.spec.ts",
+      "spec": "Build a standalone QA detector that validates the edges of a single oralTaskGraph. Context: an oralTaskGraph is the object shape { graphId: string, entryNodeId: string, nodes: Array<{ nodeId: string, type: string, ...}>, edges: Array<{ from: string, to: string, condition: string, choiceIndex?: number }> }. The canonical Zod schema lives at src/game-engine/core/schemas/oral-task-graph.ts (read it for reference; import its type only). CREATE scripts/qa/oraltask-edge-endpoints.ts exporting a pure function `detectEdgeEndpointIntegrity(graph)` that returns an array of issue objects of shape { code: string, graphId: string, edgeIndex: number, message: string }. Use `import type { OralTaskGraph } from \"../../src/game-engine/core/schemas/oral-task-graph.js\"` for the parameter type (type-only import, no runtime Babylon). Build a Set of existing node ids from graph.nodes (map n => n.nodeId). For each edge (with its index) emit: code \"edge-endpoint-empty\" when edge.from or edge.to is missing/empty/whitespace-only (trim and check length 0); code \"edge-from-unknown-node\" when a non-empty edge.from is not in the node-id set; code \"edge-to-unknown-node\" when a non-empty edge.to is not in the node-id set; code \"edge-self-loop\" when edge.from === edge.to and both are non-empty. A valid graph (the croissant fixture shape) must yield zero issues. The detector must be pure (no I/O, no Babylon import). Match the codebase style of scripts/qa/visual-parity.ts. CREATE test/qa/oraltask-edge-endpoints.spec.ts importing the detector via `import { detectEdgeEndpointIntegrity } from \"../../scripts/qa/oraltask-edge-endpoints.js\"` (note the .js specifier even though the source is .ts \u2014 NodeNext resolution). Use vitest (describe/it/expect). Cover: (1) a clean graph with 2 nodes and one valid edge returns []; (2) an edge with empty `from` produces an \"edge-endpoint-empty\" issue; (3) an edge whose `to` references a non-existent nodeId produces \"edge-to-unknown-node\"; (4) an edge with from===to produces \"edge-self-loop\". You MUST run the verify command `npx vitest run test/qa/oraltask-edge-endpoints.spec.ts` and not finish until it passes. Do not edit any files other than the two listed.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "oraltask-unreachable-nodes",
+      "title": "Detect oralTaskGraph nodes unreachable from entryNodeId via edges",
+      "worker_model": "codex",
+      "commit": "feat(qa): add oralTaskGraph unreachable-node detector",
+      "allowed_files": [
+        "scripts/qa/oraltask-unreachable-nodes.ts",
+        "test/qa/oraltask-unreachable-nodes.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-unreachable-nodes.spec.ts",
+      "spec": "Build a standalone QA detector that finds oralTaskGraph nodes that cannot be reached from the entry node. Context: an oralTaskGraph is { graphId: string, entryNodeId: string, nodes: Array<{ nodeId: string, type: string }>, edges: Array<{ from: string, to: string }> }. Canonical Zod schema: src/game-engine/core/schemas/oral-task-graph.ts (read for reference; type-only import). CREATE scripts/qa/oraltask-unreachable-nodes.ts exporting a pure function `detectUnreachableNodes(graph)` returning an array of { code: string, graphId: string, nodeId: string, message: string }. Use `import type { OralTaskGraph } from \"../../src/game-engine/core/schemas/oral-task-graph.js\"`. Algorithm: build an adjacency map from edges (from -> [to...]). Do a breadth-first / depth-first traversal starting at graph.entryNodeId, collecting the set of reachable nodeIds. Then for every node in graph.nodes whose nodeId is NOT in the reachable set, emit one issue with code \"unreachable-node\". If entryNodeId does not match any node, still treat reachable set as just whatever the traversal reaches (do not throw). A fully-connected linear graph must return []. The detector must be pure (no I/O, no Babylon). Match scripts/qa/visual-parity.ts style. CREATE test/qa/oraltask-unreachable-nodes.spec.ts importing via `import { detectUnreachableNodes } from \"../../scripts/qa/oraltask-unreachable-nodes.js\"`. Use vitest. Cover: (1) a 3-node chain entry->a->b->c returns []; (2) a graph where one node has no incoming edge and is not the entry returns one \"unreachable-node\" issue naming that nodeId; (3) a branching graph (entry with two outgoing edges) where both branches are reachable returns []. You MUST run `npx vitest run test/qa/oraltask-unreachable-nodes.spec.ts` and not finish until it passes. Do not edit any files other than the two listed.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "oraltask-deadend-nodes",
+      "title": "Detect non-terminal oralTaskGraph nodes that have no outgoing edge",
+      "worker_model": "codex",
+      "commit": "feat(qa): add oralTaskGraph dead-end node detector",
+      "allowed_files": [
+        "scripts/qa/oraltask-deadend-nodes.ts",
+        "test/qa/oraltask-deadend-nodes.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-deadend-nodes.spec.ts",
+      "spec": "Build a standalone QA detector that finds oralTaskGraph nodes that are dead ends: a node that is NOT a terminal type but has zero outgoing edges. Context: an oralTaskGraph is { graphId: string, entryNodeId: string, nodes: Array<{ nodeId: string, type: string }>, edges: Array<{ from: string, to: string }> }. Node `type` is a string discriminator; the terminal node types (allowed to have no outgoing edge) are \"success\" and \"teacherReport\". Canonical Zod schema: src/game-engine/core/schemas/oral-task-graph.ts (read for reference; type-only import). CREATE scripts/qa/oraltask-deadend-nodes.ts exporting a pure function `detectDeadEndNodes(graph)` returning an array of { code: string, graphId: string, nodeId: string, nodeType: string, message: string }. Use `import type { OralTaskGraph } from \"../../src/game-engine/core/schemas/oral-task-graph.js\"`. Algorithm: build a Set of node ids that appear as edge.from. For each node in graph.nodes whose type is not \"success\" and not \"teacherReport\" and whose nodeId is not in that from-set, emit one issue with code \"dead-end-node\". Define the terminal set as a named const TERMINAL_NODE_TYPES = new Set([\"success\", \"teacherReport\"]) so it is greppable. The detector must be pure (no I/O, no Babylon). Match scripts/qa/visual-parity.ts style. CREATE test/qa/oraltask-deadend-nodes.spec.ts importing via `import { detectDeadEndNodes } from \"../../scripts/qa/oraltask-deadend-nodes.js\"`. Use vitest. Cover: (1) a chain where every non-terminal node has an outgoing edge and the last node is type \"success\" returns []; (2) a graph with a non-terminal node (e.g. type \"npcQuestion\") that has no outgoing edge returns one \"dead-end-node\" issue naming it; (3) a node of type \"teacherReport\" with no outgoing edge does NOT produce an issue. You MUST run `npx vitest run test/qa/oraltask-deadend-nodes.spec.ts` and not finish until it passes. Do not edit any files other than the two listed.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "oraltask-choice-edge-coverage",
+      "title": "Detect fallbackChoice nodes whose choice-condition edges have missing or out-of-range choiceIndex",
+      "worker_model": "claude",
+      "commit": "feat(qa): add oralTaskGraph choice-edge coverage detector",
+      "allowed_files": [
+        "scripts/qa/oraltask-choice-edges.ts",
+        "test/qa/oraltask-choice-edges.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-choice-edges.spec.ts",
+      "spec": "Build a standalone QA detector that validates the wiring of fallbackChoice nodes in an oralTaskGraph. Context: an oralTaskGraph is { graphId: string, entryNodeId: string, nodes: Array<Node>, edges: Array<{ from: string, to: string, condition: string, choiceIndex?: number }> }. A Node of type \"fallbackChoice\" has shape { nodeId: string, type: \"fallbackChoice\", choices: string[] } where choices has 1..3 entries. An edge whose condition === \"choice\" selects one entry of the source fallbackChoice node's choices by its numeric choiceIndex. Canonical Zod schema: src/game-engine/core/schemas/oral-task-graph.ts (read it \u2014 OralTaskNode is a discriminated union on `type`, OralTaskEdge has condition enum including \"choice\" and an optional choiceIndex; type-only import). CREATE scripts/qa/oraltask-choice-edges.ts exporting a pure function `detectChoiceEdgeCoverage(graph)` returning an array of { code: string, graphId: string, edgeIndex: number, message: string }. Use `import type { OralTaskGraph } from \"../../src/game-engine/core/schemas/oral-task-graph.js\"`. Build a Map from nodeId to node so you can look up the source node of each edge. For each edge (with index) where edge.condition === \"choice\": (a) if the source node (edge.from) is missing or its type is not \"fallbackChoice\", emit code \"choice-edge-non-choice-source\"; (b) else if edge.choiceIndex is undefined, emit code \"choice-edge-missing-index\"; (c) else if edge.choiceIndex < 0 or >= source.choices.length, emit code \"choice-edge-index-out-of-range\". Additionally, for any edge whose condition is NOT \"choice\" but that nonetheless carries a defined choiceIndex, emit code \"choice-index-on-non-choice-edge\". The detector must be pure (no I/O, no Babylon import). Match scripts/qa/visual-parity.ts style. CREATE test/qa/oraltask-choice-edges.spec.ts importing via `import { detectChoiceEdgeCoverage } from \"../../scripts/qa/oraltask-choice-edges.js\"`. Use vitest. Cover: (1) a fallbackChoice node with 3 choices and a choice edge with choiceIndex 0 returns []; (2) a choice edge whose choiceIndex is 5 (>= choices.length) returns one \"choice-edge-index-out-of-range\" issue; (3) a choice edge with no choiceIndex returns \"choice-edge-missing-index\"; (4) a non-choice edge (condition \"pass\") that carries choiceIndex returns \"choice-index-on-non-choice-edge\". You MUST run `npx vitest run test/qa/oraltask-choice-edges.spec.ts` and not finish until it passes. Do not edit any files other than the two listed.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    },
+    {
+      "id": "oraltask-prompt-quality",
+      "title": "Detect whitespace-only or too-short prompt/text fields on oralTaskGraph nodes",
+      "worker_model": "codex",
+      "commit": "feat(qa): add oralTaskGraph prompt quality detector",
+      "allowed_files": [
+        "scripts/qa/oraltask-prompt-quality.ts",
+        "test/qa/oraltask-prompt-quality.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/oraltask-prompt-quality.spec.ts",
+      "spec": "Build a standalone QA detector that checks the human-facing text fields on oralTaskGraph nodes for low quality (whitespace-only or trivially short). Context: an oralTaskGraph is { graphId: string, entryNodeId: string, nodes: Array<Node> }. Different node types carry different text fields: type \"briefing\" has `text`, type \"npcQuestion\" has `prompt`, type \"hint\" has `text`, type \"reflection\" has `prompt`. Canonical Zod schema: src/game-engine/core/schemas/oral-task-graph.ts (read it \u2014 OralTaskNode is a discriminated union on `type`; type-only import). CREATE scripts/qa/oraltask-prompt-quality.ts exporting a pure function `detectPromptQuality(graph)` returning an array of { code: string, graphId: string, nodeId: string, field: string, message: string }. Use `import type { OralTaskGraph } from \"../../src/game-engine/core/schemas/oral-task-graph.js\"`. Define a greppable const PROMPT_FIELDS_BY_TYPE: Record<string, string> = { briefing: \"text\", npcQuestion: \"prompt\", hint: \"text\", reflection: \"prompt\" }. For each node, look up its prompt field name by node.type; if the node has such a field and its string value (read via an index access on the node) is present, then: if the trimmed value has length 0, emit code \"prompt-whitespace-only\"; else if the trimmed value has length < 3, emit code \"prompt-too-short\". Skip node types not in the map. The detector must be pure (no I/O, no Babylon import). Match scripts/qa/visual-parity.ts style. CREATE test/qa/oraltask-prompt-quality.spec.ts importing via `import { detectPromptQuality } from \"../../scripts/qa/oraltask-prompt-quality.js\"`. Use vitest. Cover: (1) a briefing node with a full sentence and an npcQuestion node with a real prompt return []; (2) a briefing node whose text is \"   \" (spaces) returns one \"prompt-whitespace-only\" issue; (3) an npcQuestion node whose prompt is \"hi\" (length 2 after trim) returns one \"prompt-too-short\" issue; (4) a node type without a prompt field (e.g. \"success\") produces no issue. You MUST run `npx vitest run test/qa/oraltask-prompt-quality.spec.ts` and not finish until it passes. Do not edit any files other than the two listed.",
+      "max_iters": 12,
+      "no_progress_limit": 5,
+      "worker_timeout_s": 480
+    }
+  ],
+  "objective": "Validar estrutura do oralTaskGraph (nodes, edges, ids, prompts)",
+  "planner": "opus"
+}

@@ -1,0 +1,40 @@
+{
+  "integration_branch": "integration/agent-pipeline-test",
+  "max_concurrent": 4,
+  "global_deadline_s": 4000,
+  "pool_sids": [
+    "1da2c8af-ad9c-409b-9607-ffd18381716f",
+    "d59b4e1e-0df2-4cfb-bcc6-937c9cb6065b",
+    "821dc426-c3db-4d66-a786-9c66ad30c4e8",
+    "4fa8daf0-1ad4-4c55-a438-322649bdab57"
+  ],
+  "tasks": [
+    {
+      "id": "duplicate-activity-ids",
+      "worker_model": "dumont",
+      "max_iters": 12,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 two teacherActivities share the same id",
+      "allowed_files": [
+        "scripts/qa/duplicate-activity-ids.ts",
+        "test/qa/duplicate-activity-ids.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/duplicate-activity-ids.spec.ts",
+      "spec": "Create a deterministic detector: two teacherActivities share the same id. export function findDuplicateActivityIds(project): { duplicates: string[] } \u2014 activity ids appearing more than once. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality; if the concept is absent, implement generically and ensure BOTH example projects yield ZERO findings. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST assert ZERO findings for both example projects AND include an inline fixture triggering exactly one finding. VERIFY by running the exact verify command; if blocked, STOP and report. Test: two activities id 'a1' -> duplicates ['a1']."
+    },
+    {
+      "id": "portal-without-label",
+      "worker_model": "dumont",
+      "max_iters": 12,
+      "worker_timeout_s": 420,
+      "commit": "feat(qa): detector \u2014 portal missing a human label",
+      "allowed_files": [
+        "scripts/qa/portal-without-label.ts",
+        "test/qa/portal-without-label.spec.ts"
+      ],
+      "verify_cmd": "npx vitest run test/qa/portal-without-label.spec.ts",
+      "spec": "Create a deterministic detector: portal missing a human label. export function findPortalsWithoutLabel(project): { offenders: Array<{scene:string;index:number}> } \u2014 portals with missing/empty label. Be defensive, never throw. FIRST read examples/game-engine/pharmacy-help-pt-a2/project.json and examples/game-engine/coffee-order-en-a1/project.json to learn the REAL shape/field names; match the detector to reality; if the concept is absent, implement generically and ensure BOTH example projects yield ZERO findings. HARD RULES: TypeScript only; NodeNext import the script as ../../scripts/qa/<name>.js (test in test/qa/); comments explain only WHY; no new deps; create ONLY the two files. CLI `tsx scripts/qa/<name>.ts <project.json>` prints a JSON summary and process.exit(1) when findings non-empty. The vitest spec MUST assert ZERO findings for both example projects AND include an inline fixture triggering exactly one finding. VERIFY by running the exact verify command; if blocked, STOP and report. Test: a scene 'home' with a portal lacking label -> one offender."
+    }
+  ],
+  "golden_sid": "1da2c8af-ad9c-409b-9607-ffd18381716f"
+}
