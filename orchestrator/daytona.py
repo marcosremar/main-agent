@@ -19,7 +19,10 @@ class Daytona:
         self.key = key
 
     def _req(self, method: str, path: str, body=None, timeout=60, retries=3):
-        data = json.dumps(body).encode() if body is not None else None
+        try:
+            data = json.dumps(body).encode() if body is not None else None
+        except TypeError as e:
+            raise TypeError(f"_req: body is not JSON-serializable: {e}") from e
         last = None
         for attempt in range(retries):
             req = urllib.request.Request(
@@ -218,9 +221,10 @@ class Daytona:
         """Kill any process matching `match` on the sandbox (runaway agentic worker)."""
         self.exec(sid, f"pkill -9 -f {json.dumps(match)} 2>/dev/null; echo killed", timeout=30)
 
-    def exec_wait(self, sid: str, match: str, logfile: str, poll=10, timeout=480, stall=150):
+    def exec_wait(self, sid: str, match: str, logfile: str, timeout=480, stall=150):
         """Wait until the completion sentinel appears in the logfile; return its tail.
 
+        Poll frequency starts at 1s and doubles every 15s up to 10s max.
         Two kill conditions, whichever fires first:
           - wall-clock `timeout`: hard cap on total runtime.
           - `stall`: the logfile stops GROWING for `stall` seconds. A hung `claude -p`/`codex`
@@ -230,6 +234,7 @@ class Daytona:
         handle as a failed iteration."""
         t0 = time.time()
         last_size, last_growth = -1, time.time()
+        poll = 1.0
         while True:
             if time.time() - t0 > timeout:
                 self.kill(sid, match)
@@ -237,8 +242,6 @@ class Daytona:
             if time.time() - last_growth > stall:
                 self.kill(sid, match)
                 raise TimeoutError(f"'{match}' stalled {stall}s (no log output) — killed")
-            # short poll timeout + no retries so a slow proxy can't stretch the loop.
-            # `wc -c` reports the log size so we can detect a stall (no new bytes).
             try:
                 _, out = self.exec(
                     sid,
@@ -246,15 +249,16 @@ class Daytona:
                     f"tail -40 {logfile}; else echo RUNNING; wc -c <{logfile} 2>/dev/null; fi",
                     timeout=25, retries=1)
             except RuntimeError:
-                out = "RUNNING"   # transient proxy error — keep waiting, deadlines still apply
+                out = "RUNNING"
             if "DONE" in out:
                 return out
-            # last token from `wc -c` is the current byte count; growth resets the stall clock
             try:
                 size = int(out.strip().split()[-1])
                 if size == 0 or size != last_size:
-                    # reset stall clock on any growth OR while log is empty (worker still starting)
                     last_size, last_growth = size, time.time()
+                    poll = 1.0
             except (ValueError, IndexError):
                 pass
+            elapsed = time.time() - t0
+            poll = min(10.0, 1.0 * (2 ** (elapsed / 15.0)))
             time.sleep(poll)
