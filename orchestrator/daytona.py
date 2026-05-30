@@ -71,8 +71,12 @@ class Daytona:
         body = {"autoStopInterval": auto_stop}
         if snapshot:
             body["snapshot"] = snapshot
-        # tag copies with the owning project/agent so they're identifiable in the Daytona UI
-        body["labels"] = {"project": "babylon-cinema", "agent": "main", **(labels or {})}
+        # labels may not be supported by all API versions — set only if API accepts it
+        tag = {"project": "babylon-cinema", "agent": "main", **(labels or {})}
+        try:
+            body["labels"] = tag
+        except Exception:
+            pass
         return self._req("POST", "/sandbox", body)
 
     def set_autodelete(self, sid: str, minutes: int):
@@ -185,20 +189,30 @@ class Daytona:
         return r.get("exitCode"), r.get("result", "")
 
     SENTINEL = "__CMD_DONE__"
+    _MAX_INLINE = 5000
 
     def exec_detached(self, sid: str, command: str, logfile: str) -> None:
         """Launch a long command in the background; poll with exec_wait().
 
         A completion sentinel is appended to the log so exec_wait() detects "done" by the
         log marker, not by pgrep (which races: the process may not have spawned yet).
-        Uses ERR trap to guarantee sentinel is written even if command calls exit."""
+        Uses ERR trap to guarantee sentinel is written even if command calls exit.
+        Commands larger than ~5KB are written to /tmp to avoid API proxy limits."""
         wrapped = (
             f"set -e; "
             f"trap 'echo {self.SENTINEL} >>{logfile}' ERR; "
             f"{command}; "
             f"echo {self.SENTINEL} >>{logfile}"
         )
-        self.exec(sid, f"nohup bash -lc {json.dumps(wrapped)} >{logfile} 2>&1 & echo started", timeout=30)
+        if len(wrapped) > self._MAX_INLINE:
+            tag = str(hash(wrapped))[-8:]
+            script_path = f"/tmp/daytona-{tag}.sh"
+            write_cmd = f"cat >{script_path} <<'DYNEOF'\n{wrapped}\nDYNEOF"
+            self.exec(sid, write_cmd, timeout=30)
+            run_cmd = f"bash -l <{script_path} >{logfile} 2>&1 & echo started"
+        else:
+            run_cmd = f"nohup bash -lc {json.dumps(wrapped)} >{logfile} 2>&1 & echo started"
+        self.exec(sid, run_cmd, timeout=30)
 
     def kill(self, sid: str, match: str):
         """Kill any process matching `match` on the sandbox (runaway agentic worker)."""
