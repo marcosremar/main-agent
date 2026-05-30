@@ -8,6 +8,31 @@ no-progress stall). The prompt now spells out exactly what the test must contain
 EXAMPLES = ("examples/game-engine/pharmacy-help-pt-a2/project.json and "
             "examples/game-engine/coffee-order-en-a1/project.json")
 
+_REQUIRED_TASK_FIELDS = ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")
+
+
+def _validate_task(t: dict):
+    missing = [f for f in _REQUIRED_TASK_FIELDS if f not in t or t[f] is None]
+    if missing:
+        raise ValueError(f"task {t.get('id','?')} missing required fields: {missing}")
+
+
+def detector_task(tid: str, title: str, rule: str, fixture: str,
+                  worker_model: str = "dumont", max_iters: int = 12,
+                  no_progress_limit: int = 5, worker_timeout_s: int = 480) -> dict:
+    script = f"scripts/qa/{tid}.ts"
+    spec_file = f"test/qa/{tid}.spec.ts"
+    task = {
+        "id": tid, "worker_model": worker_model, "max_iters": max_iters,
+        "no_progress_limit": no_progress_limit, "worker_timeout_s": worker_timeout_s,
+        "commit": f"feat(qa): detector — {title}",
+        "allowed_files": [script, spec_file],
+        "verify_cmd": f"npx vitest run {spec_file}",
+        "spec": detector_spec(title, rule, fixture, script, spec_file),
+    }
+    _validate_task(task)
+    return task
+
 
 def detector_spec(title: str, rule: str, fixture: str, script: str, spec_file: str) -> str:
     """Build a detector task prompt with a strict, explicit test contract."""
@@ -42,18 +67,3 @@ HARD RULES: TypeScript only. NodeNext ESM (.js specifiers). Comments explain onl
 new dependencies. Touch ONLY those two files. VERIFY before finishing by running exactly
 `npx vitest run {spec_file}` and confirming it PASSES (all 3 cases). If genuinely blocked,
 STOP and report — do not edit unrelated files."""
-
-
-def detector_task(tid: str, title: str, rule: str, fixture: str,
-                  worker_model: str = "dumont", max_iters: int = 12,
-                  no_progress_limit: int = 5, worker_timeout_s: int = 480) -> dict:
-    script = f"scripts/qa/{tid}.ts"
-    spec_file = f"test/qa/{tid}.spec.ts"
-    return {
-        "id": tid, "worker_model": worker_model, "max_iters": max_iters,
-        "no_progress_limit": no_progress_limit, "worker_timeout_s": worker_timeout_s,
-        "commit": f"feat(qa): detector — {title}",
-        "allowed_files": [script, spec_file],
-        "verify_cmd": f"npx vitest run {spec_file}",
-        "spec": detector_spec(title, rule, fixture, script, spec_file),
-    }

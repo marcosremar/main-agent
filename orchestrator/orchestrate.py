@@ -115,7 +115,16 @@ def run_worker(dt, sid, wt, model, spec, tag, worker_timeout=480, allowed=None):
         cmd = f"{env}{OPATH}; cd \"{wt}\" && cat {specfile} | opencode run -m {model}"
         match = "opencode run"
     dt.exec_detached(sid, cmd, logfile)
-    return dt.exec_wait(sid, match, logfile, timeout=worker_timeout)
+    result = dt.exec_wait(sid, match, logfile, timeout=worker_timeout)
+    if allowed:
+        _, status_out = dt.exec(sid, f"cd \"{wt}\" && git status --porcelain", timeout=30)
+        changed = [l.strip() for l in status_out.strip().splitlines() if l.strip()]
+        norm = lambda p: p.rstrip("/")
+        allowset = {norm(a) for a in allowed}
+        extra = [f for f in changed if not (norm(f) in allowset or any(norm(f).startswith(norm(a) + "/") for a in allowset))]
+        if extra:
+            return f"OUT_OF_SCOPE: extra files modified: {extra}\n{result}"
+    return result
 
 
 def cleanup_worktree(dt, sid, wt, branch):
@@ -280,7 +289,7 @@ def scope_ok(dt, sid, wt, allowed):
     return (len(extra) == 0), changed, extra
 
 
-def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_key):
+def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_key, opus_validate_default=True):
     tid = task["id"]
     # sanitize tid for path use: / creates subdirectories in wt path, replace with -
     safe_tid = tid.replace("/", "-")
@@ -304,6 +313,13 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_
 
     # ensure the sandbox is running — a long task can outlast autoStopInterval, or a
     # degraded poll window can let it auto-stop mid-run. start() is idempotent (~1.2s).
+    # But if the sandbox is in "error" state, start() won't fix it — treat as dead.
+    try:
+        state = dt.state(sid)
+        if state == "error":
+            return {"id": tid, "status": "INFRA_DEAD", "error": f"sandbox {sid[:8]} in error state"}
+    except Exception:
+        pass
     dt.start(sid)
     log(f"[{tid}] worktree {branch} from {integration_branch}")
     # single-branch clone has a restricted fetch refspec, so the remote-tracking ref for
@@ -370,8 +386,16 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_
                     task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits.")
             spec = task["spec"] + "\n\nPREVIOUS ATTEMPT TIMED OUT. Be fast and minimal; make ONLY the required edits."
             continue
+        time.sleep(2)
+        last_mtime = None
+        for _polls in range(5):
+            time.sleep(2)
+            _, stable_out = dt.exec(sid, f"cd \"{wt}\" && git status --porcelain", timeout=30)
+            if last_mtime is not None and stable_out == last_mtime:
+                break
+            last_mtime = stable_out
         try:
-            ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}")
+            ok, out = verify_task(dt, sid, wt, task, f"{tid}-{i}", opus_validate_default=opus_validate_default)
         except TimeoutError as e:
             log(f"[{tid}] verify HUNG iter {i}: {e}")
             ok, out = False, f"verification timed out: {e}"
@@ -471,6 +495,12 @@ def run_task(dt, gh, sid, integration_branch, task, merge_lock, lane_sems, lane_
         import hashlib, json as _json
         allowed_files_hash = hashlib.sha1(_json.dumps(sorted(allowed)).encode()).hexdigest()
         try:
+            # post-merge compat: merge IB INTO PR branch first to catch conflicts early
+            try:
+                gh.merge_branch_to_ib(branch, integration_branch)
+            except RuntimeError as e:
+                raise RuntimeError(f"MERGE_CONFLICT: IB->PR branch failed: {e}") from e
+            time.sleep(2)
             merged = gh.merge_pr(num, "squash")
         except Exception as e:
             gh.close_pr(num, f"Merged failed: {e}")
@@ -609,12 +639,29 @@ def lane_key_func(model):
     return str(model)
 
 
+def validate_config(cfg: dict):
+    """Validate config schema and task ID uniqueness."""
+    for _req in ("integration_branch", "tasks"):
+        if _req not in cfg:
+            raise SystemExit(f"config missing required field: {_req!r}")
+    if not isinstance(cfg["tasks"], list):
+        raise SystemExit("config 'tasks' must be a list")
+    ids = [t["id"] for t in cfg["tasks"] if "id" in t and t["id"] is not None]
+    if len(ids) != len(set(ids)):
+        dupes = sorted(set(x for x in ids if ids.count(x) > 1))
+        raise SystemExit(f"duplicate task IDs: {dupes}")
+
+
 def main():
     if len(sys.argv) < 2:
-        raise SystemExit("Usage: python3 orchestrate.py config.json\n"
-                         "  config.json  path to task config (see CLAUDE.md for schema)")
+        raise SystemExit("Usage: python3 orchestrate.py config.json [--no-validate]\n"
+                         "  config.json  path to task config (see CLAUDE.md for schema)\n"
+                         "  --no-validate  skip Opus validation for all tasks (unless overridden)")
 
-    cfg = json.load(open(sys.argv[1]))
+    no_validate = "--no-validate" in sys.argv
+    cfg_file = [a for a in sys.argv[1:] if not a.startswith("--")][0]
+    cfg = json.load(open(cfg_file))
+    validate_config(cfg)
     # validate required fields up front — a missing key deep in the run produces confusing errors
     for _req_key in ("integration_branch", "tasks"):
         if _req_key not in cfg:
@@ -625,7 +672,8 @@ def main():
     if not key:
         raise SystemExit("set DAYTONA_API_KEY env var (or daytona_key in config)")
     dt = Daytona(key)
-    gh = GitHub(gh_token())
+    ght = gh_token()
+    gh = GitHub(ght)
 
     _stop = threading.Event()
     def _sigint(sig, frame):
@@ -637,7 +685,7 @@ def main():
     ib = cfg["integration_branch"]
 
     # DRY-RUN: estimate cost before launching any sandbox
-    if cfg.get("dry_run"):
+    if cfg.get("dry_run") or "--dry-run" in sys.argv:
         tasks = cfg["tasks"]
         cloud = [t for t in tasks if t.get("location", "cloud") == "cloud"]
         total_iters = sum(t.get("max_iters", 1) for t in cloud)
@@ -725,7 +773,7 @@ def main():
 
     from setup_golden import provision_one
     from creds import claude_credentials_b64, opencode_auth_b64
-    cc, oc, ght = claude_credentials_b64(), opencode_auth_b64(), gh_token()
+    cc, oc, _ = claude_credentials_b64(), opencode_auth_b64(), ght  # ght reused from line ~628
 
     def provision_fresh():
         acquired = provision_lock.acquire(timeout=300)
@@ -820,7 +868,7 @@ def main():
                     sid = None
                     try:
                         sid = acquire_live(dt, free, ght, provision_fresh)
-                        r = run_task(dt, gh, sid, ib, task, merge_lock, lane_sems, lane_key)
+                        r = run_task(dt, gh, sid, ib, task, merge_lock, lane_sems, lane_key, opus_validate_default=not no_validate)
                         if not ephemeral and dt.is_alive(sid):
                             free.put(sid)
                         elif ephemeral:

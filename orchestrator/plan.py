@@ -20,6 +20,15 @@ BRAIN = "/Users/marcos/projects/babylon-cinema-brain"
 IB_PLACEHOLDER = "integration/agent-pipeline-test"
 
 
+def _safe_objective(obj: str, max_len: int = 80) -> str:
+    import hashlib
+    return hashlib.sha256(obj.encode()).hexdigest()[:max_len]
+
+
+def _integration_branch() -> str:
+    return IB_PLACEHOLDER
+
+
 def roadmap_context(objective: str) -> str:
     """Pull the real task source: the ROADMAP epic matching the objective + the CHECKLIST.
     These are the REAL tasks (the doctorate plan), not invented filler."""
@@ -49,15 +58,34 @@ def done_ids():
     for f in glob.glob(os.path.join(here, "config*.json")):
         try:
             for t in json.load(open(f)).get("tasks", []):
-                ids.add(t["id"])
+                if "id" in t and t["id"] is not None:
+                    ids.add(t["id"])
         except Exception:
             pass
     for f in glob.glob(os.path.join(here, "state", "state-*.json")):
         try:
-            ids.update(json.load(open(f)).keys())
+            ids.update(k for k in json.load(open(f)).keys() if k is not None)
         except Exception:
             pass
     return sorted(ids)
+
+
+def validate_config(cfg: dict):
+    """Validate config schema, task ID uniqueness, and IB existence."""
+    for _req in ("integration_branch", "tasks"):
+        if _req not in cfg:
+            raise SystemExit(f"config missing required field: {_req!r}")
+    if not isinstance(cfg["tasks"], list):
+        raise SystemExit("config 'tasks' must be a list")
+    ids = [t["id"] for t in cfg["tasks"] if "id" in t and t["id"] is not None]
+    if len(ids) != len(set(ids)):
+        dupes = [x for x in ids if ids.count(x) > 1]
+        raise SystemExit(f"duplicate task IDs: {sorted(set(dupes))}")
+    required_task_fields = ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")
+    for t in cfg["tasks"]:
+        missing = [f for f in required_task_fields if f not in t]
+        if missing:
+            raise SystemExit(f"task {t.get('id','?')} missing fields: {missing}")
 
 
 def run_planner(objective: str, n: int) -> list:
@@ -194,9 +222,11 @@ Output the JSON array and nothing else."""
 
 
 def main():
-    objective = sys.argv[1]
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-    out = sys.argv[3] if len(sys.argv) > 3 else "config-planned.json"
+    dry_run = "--dry-run" in sys.argv
+    argv = [a for a in sys.argv[1:] if a != "--dry-run"]
+    objective = argv[0] if argv else ""
+    n = int(argv[1]) if len(argv) > 1 else 5
+    out = argv[2] if len(argv) > 2 else "config-planned.json"
     print(f"planning ({n}) for: {objective}")
     tasks = run_planner(objective, n)
     ib = _integration_branch()
@@ -204,6 +234,12 @@ def main():
            "global_deadline_s": 7200, "pool_sids": [],
            "objective": objective, "planner": "opus",
            "tasks": tasks}
+    validate_config(cfg)
+    if dry_run:
+        print(f"\n[DRY RUN] would write {out} with {len(tasks)} tasks:")
+        for t in tasks:
+            print(f"  [{t['worker_model']}] {t['id']}")
+        return
     json.dump(cfg, open(out, "w"), indent=2)
     print(f"\nwrote {out} with {len(tasks)} tasks:")
     for t in tasks:

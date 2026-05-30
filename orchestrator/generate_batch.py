@@ -90,5 +90,26 @@ for tid, title, rule, fixture in DETECTORS:
 
 cfg = {"integration_branch": IB, "max_concurrent": 15,
        "global_deadline_s": 5400, "pool_sids": [], "tasks": tasks}
+
+_REQUIRED_TASK_FIELDS = ("id", "worker_model", "commit", "allowed_files", "verify_cmd", "spec")
+
+
+def _validate_cfg(cfg):
+    for _req in ("integration_branch", "tasks"):
+        if _req not in cfg:
+            raise ValueError(f"config missing required field: {_req!r}")
+    if not isinstance(cfg["tasks"], list):
+        raise ValueError("config 'tasks' must be a list")
+    ids = [t["id"] for t in cfg["tasks"] if "id" in t and t["id"] is not None]
+    if len(ids) != len(set(ids)):
+        dupes = sorted(set(x for x in ids if ids.count(x) > 1))
+        raise ValueError(f"duplicate task IDs: {dupes}")
+    for t in cfg["tasks"]:
+        missing = [f for f in _REQUIRED_TASK_FIELDS if f not in t or t[f] is None]
+        if missing:
+            raise ValueError(f"task {t.get('id','?')} missing fields: {missing}")
+
+
+_validate_cfg(cfg)
 json.dump(cfg, open("config-batch.json", "w"), indent=2)
 print(f"wrote config-batch.json with {len(tasks)} detector tasks")
